@@ -1,8 +1,7 @@
 use deterministic_rand::rngs::OsRng;
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::io::Write;
 
 enum RPC {
     Ping,
@@ -18,18 +17,17 @@ pub struct StartConfig {
 }
 
 struct RuntimeConfig {
-    port: u16, 
+    port: u16,
     datadir: std::path::PathBuf,
     signing_key: SigningKey,
-    node_id: [u8; 32]
+    node_id: [u8; 32],
 }
 
 impl RuntimeConfig {
     pub fn from_config(path: std::path::PathBuf) -> Self {
         use sha2::Digest;
-
-        let content = std::fs::read_to_string(&path)
-            .expect("could not read config file");
+        //TODO: use JSON or something with stricter formatting rules this is a little flaky
+        let content = std::fs::read_to_string(&path).expect("could not read config file");
 
         let mut secret_key_hex: Option<String> = None;
         let mut port: Option<u16> = None;
@@ -46,22 +44,17 @@ impl RuntimeConfig {
 
             match key {
                 "secret_key" => secret_key_hex = Some(value.to_string()),
-                "port" => {
-                    port = Some(
-                        value
-                            .parse::<u16>()
-                            .expect("invalid port in config file"),
-                    )
-                }
+                "port" => port = Some(value.parse::<u16>().expect("invalid port in config file")),
                 "datadir" => datadir = Some(std::path::PathBuf::from(value)),
-                _ => {}
+                _ => {
+                    panic!("unrecognized argument in config file")
+                }
             }
         }
 
         let secret_key_hex = secret_key_hex.expect("missing secret_key in config file");
-        let secret_key_bytes = hex::decode(secret_key_hex)
-            .expect("secret_key is not valid hex");
-        let secret_key: [u8; 32] = secret_key_bytes
+        let secret_key: [u8; 32] = hex::decode(secret_key_hex)
+            .expect("secret_key is not valid hex")
             .as_slice()
             .try_into()
             .expect("secret_key must be 32 bytes");
@@ -93,7 +86,7 @@ struct NodeContact {
 pub struct Kademlia {
     routing_table: Vec<Vec<NodeContact>>,
     kv_store: HashMap<[u8; 32], std::path::PathBuf>,
-    config: RuntimeConfig
+    config: RuntimeConfig,
 }
 
 impl Kademlia {
@@ -132,9 +125,9 @@ impl Kademlia {
 
     pub fn from_config(config_path: std::path::PathBuf) -> Self {
         Kademlia {
-            routing_table: Vec::with_capacity(256),
+            routing_table: (0..256).map(|_| Vec::new()).collect(),
             kv_store: HashMap::new(),
-            config: RuntimeConfig::from_config(config_path)
+            config: RuntimeConfig::from_config(config_path),
         }
     }
 }
