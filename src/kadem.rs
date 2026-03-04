@@ -3,12 +3,7 @@ use ed25519_dalek::{SigningKey, VerifyingKey};
 use std::collections::HashMap;
 use std::io::Write;
 
-enum RPC {
-    Ping,
-    Store,
-    FindNode,
-    FindValue,
-}
+pub type NodeId = [u8; 32];
 
 pub struct StartConfig {
     port: u16,
@@ -20,7 +15,7 @@ struct RuntimeConfig {
     port: u16,
     datadir: std::path::PathBuf,
     signing_key: SigningKey,
-    node_id: [u8; 32],
+    node_id: NodeId,
 }
 
 impl RuntimeConfig {
@@ -61,7 +56,7 @@ impl RuntimeConfig {
 
         let signing_key = SigningKey::from_bytes(&secret_key);
         let verifying_key = signing_key.verifying_key();
-        let node_id: [u8; 32] = sha2::Sha256::digest(verifying_key.as_bytes())
+        let node_id: NodeId = sha2::Sha256::digest(verifying_key.as_bytes())
             .as_slice()
             .try_into()
             .expect("sha256 output must be 32 bytes");
@@ -79,13 +74,13 @@ struct NodeContact {
     ip: std::net::IpAddr,
     //UDP port
     port: u16,
-    node_id: [u8; 32],
+    node_id: NodeId,
     verification_key: VerifyingKey,
 }
 
 pub struct Kademlia {
     routing_table: Vec<Vec<NodeContact>>,
-    kv_store: HashMap<[u8; 32], std::path::PathBuf>,
+    kv_store: HashMap<NodeId, std::path::PathBuf>,
     config: RuntimeConfig,
 }
 
@@ -130,4 +125,14 @@ impl Kademlia {
             config: RuntimeConfig::from_config(config_path),
         }
     }
+
+    pub fn find_node(node_id: NodeId) {
+        todo!()
+    }
+
+    pub fn find_value(&mut self, key: NodeId) {
+        todo!()
+    }
+
+    //TODO: store, we will implement PING fully in proto.rs
 }
