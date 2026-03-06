@@ -56,6 +56,7 @@ impl RuntimeConfig {
 
         let signing_key = SigningKey::from_bytes(&secret_key);
         let verifying_key = signing_key.verifying_key();
+        // node id is the sha-2 hash of the verifying key
         let node_id: NodeId = sha2::Sha256::digest(verifying_key.as_bytes())
             .as_slice()
             .try_into()
@@ -71,11 +72,10 @@ impl RuntimeConfig {
 }
 
 struct NodeContact {
-    ip: std::net::IpAddr,
     //UDP port
     port: u16,
     node_id: NodeId,
-    verification_key: VerifyingKey,
+    ip: std::net::IpAddr,
 }
 
 pub struct Kademlia {
