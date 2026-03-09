@@ -1,6 +1,6 @@
 use deterministic_rand::rngs::OsRng;
 use ed25519_dalek::{SigningKey, VerifyingKey};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::Write;
 
 pub type NodeId = [u8; 32];
@@ -79,12 +79,16 @@ struct NodeContact {
 }
 
 pub struct Kademlia {
-    routing_table: Vec<Vec<NodeContact>>,
+    // index zero has a completey different prefix, 
+    // index one has one matching bit,
+    // index two has two, all the way to 256 (which is us)
+    routing_table: Vec<VecDeque<NodeContact>>,
     kv_store: HashMap<NodeId, std::path::PathBuf>,
     config: RuntimeConfig,
 }
 
 impl Kademlia {
+    pub const BUCKET_SIZE: usize = 8;
     pub fn new(
         StartConfig {
             port,
@@ -120,17 +124,24 @@ impl Kademlia {
 
     pub fn from_config(config_path: std::path::PathBuf) -> Self {
         Kademlia {
-            routing_table: (0..256).map(|_| Vec::new()).collect(),
+            routing_table: (0..256).map(|_| VecDeque::with_capacity(8)).collect(),
             kv_store: HashMap::new(),
             config: RuntimeConfig::from_config(config_path),
         }
     }
 
-    pub fn find_node(node_id: NodeId) {
+    pub fn find_node(&self, node_id: NodeId) {
+        // 
         todo!()
     }
 
-    pub fn find_value(&mut self, key: NodeId) {
+    pub fn find_value(&self, key: NodeId) {
+        todo!()
+    }
+
+    /// update the routing table when we communicate with a 
+    /// node, confirming that it's alive
+    pub fn update_bucket(&mut self, node_id: NodeId) {
         todo!()
     }
 
