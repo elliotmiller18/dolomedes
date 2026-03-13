@@ -161,7 +161,7 @@ impl Kademlia {
     }
 
     pub fn find_node(&self, node_id: NodeId) -> Result<Vec<NodeContact>> {
-        ensure!(node_id == self.config.node_id, "trying to find ourself");
+        ensure!(node_id != self.config.node_id, "trying to find ourself");
         // note: in this function (and elsewhere in this file) further/closer refer to ~~xor distance~~ which is described in the kademlia paper
         // all xor distance is is interpreting the size of a ^ b as the distance from a -> b.
         let routing_index = self.routing_index(node_id);
@@ -188,8 +188,8 @@ impl Kademlia {
         }
 
         contacts.sort_unstable_by(|a, b| {
-            let dist_a = Self::xor_distance(a.node_id, self.config.node_id);
-            let dist_b = Self::xor_distance(b.node_id, self.config.node_id);
+            let dist_a = Self::xor_distance(a.node_id, node_id);
+            let dist_b = Self::xor_distance(b.node_id, node_id);
             dist_a.cmp(&dist_b)
         });
         contacts.truncate(Self::BUCKET_SIZE);
@@ -207,6 +207,7 @@ impl Kademlia {
     /// update the routing table when we communicate with a
     /// node, confirming that it's alive
     pub fn update_bucket(&mut self, contact: NodeContact) {
+        //TODO: liveness check here where we ping before evicting
         let i = self.routing_index(contact.node_id);
 
         if self.routing_table.get(i).is_none() {
