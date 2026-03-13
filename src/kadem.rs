@@ -23,7 +23,7 @@ struct RuntimeConfig {
 impl RuntimeConfig {
     pub fn from_config(path: PathBuf) -> Result<Self> {
         use sha2::Digest;
-        //TODO: use JSON or something with stricter formatting rules this is a little flaky
+
         let content = std::fs::read_to_string(&path)
             .with_context(|| format!("failed to read config file at {}", path.display()))?;
 
@@ -107,7 +107,7 @@ pub struct Kademlia {
     // index one has one matching bit,
     // index two has two, all the way to 256 (which is us)
     routing_table: Vec<VecDeque<NodeContact>>,
-    kv_store: HashMap<NodeId, PathBuf>,
+    filepaths: HashMap<NodeId, PathBuf>,
     config: RuntimeConfig,
 }
 
@@ -124,7 +124,7 @@ impl Kademlia {
         let signing = SigningKey::generate(&mut csprng);
 
         let key_hex = hex::encode(signing.as_bytes());
-        //TODO: do we want to create a dir if it doesn't exist?
+
         let absolute_datadir = datadir
             .canonicalize()
             .with_context(|| format!("failed to canonicalize datadir {}", datadir.display()))?;
@@ -152,10 +152,10 @@ impl Kademlia {
     pub fn from_config(config_path: PathBuf) -> Result<Self> {
         Ok(Kademlia {
             routing_table: (0..256).map(|_| VecDeque::with_capacity(8)).collect(),
-            //TODO: add a floor to this that tells us what the first element of the routing table
+            //OPTIMIZATION: add a floor to this that tells us what the first element of the routing table
             // with contacts in it is. chances are we're not gonna fill 0-200 in testing and even if
             // this grew to ipfs scale we'd still never fill most of them
-            kv_store: HashMap::new(),
+            filepaths: HashMap::new(),
             config: RuntimeConfig::from_config(config_path)?,
         })
     }
@@ -166,29 +166,39 @@ impl Kademlia {
         // all xor distance is is interpreting the size of a ^ b as the distance from a -> b.
         let routing_index = self.routing_index(node_id);
 
+        // closer because nodes with an index >= routing index will always have a lower xor distance 
+        // than nodes that have an index < routing index, see kademlia paper or just read routing_index() 
+        // it's intuitive
         let closer_buckets = &self.routing_table[routing_index..self.routing_table.len()];
         let mut contacts: Vec<&NodeContact> = closer_buckets.iter().flatten().take(8).collect();
 
-        let found = contacts.len();
-        if found < 8 {
-            let remaining = 8 - found;
+        if contacts.len() < 8 {
             let farther_buckets = &self.routing_table[0..routing_index];
             contacts.append(
+                // here we take 16 because it guarantees that if we simply sort by xor distance later
+                // we will get exactly the remaining closest nodes we know about, i believe any less
+                // and we could get a suboptimal one
                 &mut farther_buckets
                     .into_iter()
                     .rev()
                     .flatten()
-                    .take(remaining)
+                    .take(16)
                     .collect(),
             );
         }
 
-        //TODO: sort this by xor distance for maximum spec adherence in the case that we need to hit farther buckets
+        contacts.sort_unstable_by(|a, b| {
+            let dist_a = Self::xor_distance(a.node_id, self.config.node_id);
+            let dist_b = Self::xor_distance(b.node_id, self.config.node_id);
+            dist_a.cmp(&dist_b)
+        });
+        contacts.truncate(8);
+
         Ok(contacts.into_iter().cloned().collect())
     }
 
     pub fn find_value(&self, key: NodeId) -> Result<FindValueResult> {
-        match self.kv_store.get(&key) {
+        match self.filepaths.get(&key) {
             Some(path) => Ok(FindValueResult::File(path.to_owned())),
             None => Ok(FindValueResult::Contact(self.find_node(key)?)),
         }
@@ -245,6 +255,8 @@ impl Kademlia {
         file_writer
             .flush()
             .with_context(|| format!("failed to flush {}", destination.display()))?;
+
+        self.filepaths.insert(key, destination);
         Ok(())
     }
 
@@ -266,5 +278,13 @@ impl Kademlia {
                 .unwrap();
             break (i * 8) + matching_high_bits;
         }
+    }
+
+    fn xor_distance(a: NodeId, b: NodeId) -> NodeId {
+        let mut result: NodeId = [0u8; 32];
+        for i in 0..a.len() {
+            result[i] = a[i] ^ b[i];
+        }
+        result
     }
 }
