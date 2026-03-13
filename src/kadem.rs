@@ -89,7 +89,7 @@ impl RuntimeConfig {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct NodeContact {
     //UDP port
     port: u16,
@@ -151,7 +151,7 @@ impl Kademlia {
 
     pub fn from_config(config_path: PathBuf) -> Result<Self> {
         Ok(Kademlia {
-            routing_table: (0..256).map(|_| VecDeque::with_capacity(8)).collect(),
+            routing_table: (0..256).map(|_| VecDeque::with_capacity(Self::BUCKET_SIZE)).collect(),
             //OPTIMIZATION: add a floor to this that tells us what the first element of the routing table
             // with contacts in it is. chances are we're not gonna fill 0-200 in testing and even if
             // this grew to ipfs scale we'd still never fill most of them
@@ -170,9 +170,9 @@ impl Kademlia {
         // than nodes that have an index < routing index, see kademlia paper or just read routing_index() 
         // it's intuitive
         let closer_buckets = &self.routing_table[routing_index..self.routing_table.len()];
-        let mut contacts: Vec<&NodeContact> = closer_buckets.iter().flatten().take(8).collect();
+        let mut contacts: Vec<&NodeContact> = closer_buckets.iter().flatten().take(Self::BUCKET_SIZE).collect();
 
-        if contacts.len() < 8 {
+        if contacts.len() < Self::BUCKET_SIZE {
             let farther_buckets = &self.routing_table[0..routing_index];
             contacts.append(
                 // here we take 16 because it guarantees that if we simply sort by xor distance later
@@ -182,7 +182,7 @@ impl Kademlia {
                     .into_iter()
                     .rev()
                     .flatten()
-                    .take(16)
+                    .take(Self::BUCKET_SIZE * 2)
                     .collect(),
             );
         }
@@ -192,7 +192,7 @@ impl Kademlia {
             let dist_b = Self::xor_distance(b.node_id, self.config.node_id);
             dist_a.cmp(&dist_b)
         });
-        contacts.truncate(8);
+        contacts.truncate(Self::BUCKET_SIZE);
 
         Ok(contacts.into_iter().cloned().collect())
     }
@@ -206,8 +206,39 @@ impl Kademlia {
 
     /// update the routing table when we communicate with a
     /// node, confirming that it's alive
-    pub fn update_bucket(&mut self, node_id: NodeId) {
-        todo!()
+    pub fn update_bucket(&mut self, contact: NodeContact) {
+        let i = self.routing_index(contact.node_id);
+
+        if self.routing_table.get(i).is_none() {
+            // this should never run but in case we optimize with lazily initing buckets later we will
+            // have it for posterity sake
+            let mut empty_bucket = VecDeque::new();
+            empty_bucket.push_front(contact);
+            self.routing_table.insert(i, empty_bucket);
+            return;
+        }
+
+        let bucket = &mut self.routing_table[i];
+
+        if bucket.len() < Self::BUCKET_SIZE {
+            bucket.push_front(contact);
+            return;
+        }
+
+        if let Some(pos) = bucket.iter().position(|known_contact| {
+            known_contact.node_id == contact.node_id
+        }) {
+            // this implicitly allows for us to easily update ip addresses and ports in case of a quick reconfig,
+            // allows for nice graceful disconnect/reconnect cause sometimes someone wants to turn on a vpn or
+            // whatever
+            bucket.remove(pos).unwrap();
+        } else if bucket.len() == Self::BUCKET_SIZE {
+            bucket.pop_back();       
+        }
+
+        bucket.push_front(contact);
+        
+        assert!(bucket.len() <= Self::BUCKET_SIZE);
     }
 
     // this is actually a good example of simple, idiomatic rust.
