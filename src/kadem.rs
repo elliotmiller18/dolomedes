@@ -1,7 +1,8 @@
+use anyhow::{Context, Result, bail, ensure};
 use deterministic_rand::rngs::OsRng;
 use ed25519_dalek::SigningKey;
 use std::collections::{HashMap, VecDeque};
-use std::io::Write;
+use std::io::{ErrorKind, Write};
 use std::path::PathBuf;
 
 pub type NodeId = [u8; 32];
@@ -20,40 +21,56 @@ struct RuntimeConfig {
 }
 
 impl RuntimeConfig {
-    pub fn from_config(path: std::path::PathBuf) -> Self {
+    pub fn from_config(path: PathBuf) -> Result<Self> {
         use sha2::Digest;
         //TODO: use JSON or something with stricter formatting rules this is a little flaky
-        let content = std::fs::read_to_string(&path).expect("could not read config file");
+        let content = std::fs::read_to_string(&path)
+            .with_context(|| format!("failed to read config file at {}", path.display()))?;
 
         let mut secret_key_hex: Option<String> = None;
         let mut port: Option<u16> = None;
-        let mut datadir: Option<std::path::PathBuf> = None;
+        let mut datadir: Option<PathBuf> = None;
 
-        for line in content.lines() {
+        for (line_number, line) in content.lines().enumerate() {
             let line = line.trim();
             if line.is_empty() {
                 continue;
             }
-            let (key, value) = line
-                .split_once('=')
-                .expect("invalid config line (missing '=')");
+            let (key, value) = line.split_once('=').with_context(|| {
+                format!(
+                    "invalid config line {} in {}: missing '='",
+                    line_number + 1,
+                    path.display()
+                )
+            })?;
 
             match key {
                 "secret_key" => secret_key_hex = Some(value.to_string()),
-                "port" => port = Some(value.parse::<u16>().expect("invalid port in config file")),
-                "datadir" => datadir = Some(std::path::PathBuf::from(value)),
-                _ => {
-                    panic!("unrecognized argument in config file")
+                "port" => {
+                    port = Some(value.parse::<u16>().with_context(|| {
+                        format!(
+                            "invalid port value on line {} in {}",
+                            line_number + 1,
+                            path.display()
+                        )
+                    })?)
                 }
+                "datadir" => datadir = Some(PathBuf::from(value)),
+                _ => bail!(
+                    "unrecognized config key '{}' on line {} in {}",
+                    key,
+                    line_number + 1,
+                    path.display()
+                ),
             }
         }
 
-        let secret_key_hex = secret_key_hex.expect("missing secret_key in config file");
+        let secret_key_hex = secret_key_hex.context("missing secret_key in config file")?;
         let secret_key: [u8; 32] = hex::decode(secret_key_hex)
-            .expect("secret_key is not valid hex")
+            .context("secret_key is not valid hex")?
             .as_slice()
             .try_into()
-            .expect("secret_key must be 32 bytes");
+            .context("secret_key must decode to exactly 32 bytes")?;
 
         let signing_key = SigningKey::from_bytes(&secret_key);
         let verifying_key = signing_key.verifying_key();
@@ -63,12 +80,12 @@ impl RuntimeConfig {
             .try_into()
             .expect("sha256 output must be 32 bytes");
 
-        RuntimeConfig {
-            port: port.expect("missing port in config file"),
-            datadir: datadir.expect("missing datadir in config file"),
+        Ok(RuntimeConfig {
+            port: port.context("missing port in config file")?,
+            datadir: datadir.context("missing datadir in config file")?,
             signing_key,
             node_id,
-        }
+        })
     }
 }
 
@@ -102,63 +119,62 @@ impl Kademlia {
             datadir,
             config_path,
         }: StartConfig,
-    ) -> Self {
+    ) -> Result<Self> {
         let mut csprng = OsRng {};
         let signing = SigningKey::generate(&mut csprng);
 
         let key_hex = hex::encode(signing.as_bytes());
         //TODO: do we want to create a dir if it doesn't exist?
-        let absolute_datadir = datadir.canonicalize().unwrap();
+        let absolute_datadir = datadir
+            .canonicalize()
+            .with_context(|| format!("failed to canonicalize datadir {}", datadir.display()))?;
 
         let content = format!(
             "secret_key={}\nport={}\ndatadir={}",
             key_hex,
             port,
-            absolute_datadir
-                .to_str()
-                .expect("invalid characters in datadir path"),
+            absolute_datadir.to_str().context(
+                "datadir contains invalid UTF-8 and cannot be written to the config file"
+            )?,
         );
 
         std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(&config_path)
-            .expect("config file already exists or could not be created")
+            .with_context(|| format!("failed to create config file {}", config_path.display()))?
             .write_all(content.as_bytes())
-            .expect("failed to write to config file");
+            .with_context(|| format!("failed to write config file {}", config_path.display()))?;
 
         Self::from_config(config_path)
     }
 
-    pub fn from_config(config_path: std::path::PathBuf) -> Self {
-        Kademlia {
+    pub fn from_config(config_path: PathBuf) -> Result<Self> {
+        Ok(Kademlia {
             routing_table: (0..256).map(|_| VecDeque::with_capacity(8)).collect(),
             //TODO: add a floor to this that tells us what the first element of the routing table
             // with contacts in it is. chances are we're not gonna fill 0-200 in testing and even if
             // this grew to ipfs scale we'd still never fill most of them
             kv_store: HashMap::new(),
-            config: RuntimeConfig::from_config(config_path),
-        }
+            config: RuntimeConfig::from_config(config_path)?,
+        })
     }
 
-    pub fn find_node(&self, node_id: NodeId) -> Vec<NodeContact> {
-        assert!(node_id != self.config.node_id, "trying to find ourself?");
+    pub fn find_node(&self, node_id: NodeId) -> Result<Vec<NodeContact>> {
+        ensure!(node_id == self.config.node_id, "trying to find ourself");
         // note: in this function (and elsewhere in this file) further/closer refer to ~~xor distance~~ which is described in the kademlia paper
         // all xor distance is is interpreting the size of a ^ b as the distance from a -> b.
         let routing_index = self.routing_index(node_id);
 
         let closer_buckets = &self.routing_table[routing_index..self.routing_table.len()];
-        let mut closer_contacts: Vec<&NodeContact> =
-            closer_buckets.iter().flatten().take(8).collect();
+        let mut contacts: Vec<&NodeContact> = closer_buckets.iter().flatten().take(8).collect();
 
-        let found = closer_contacts.len();
+        let found = contacts.len();
         if found < 8 {
-            // dont we love asserts >,,<
-            assert!(found < 8);
             let remaining = 8 - found;
-            let further_buckets = &self.routing_table[0..routing_index];
-            closer_contacts.append(
-                &mut further_buckets
+            let farther_buckets = &self.routing_table[0..routing_index];
+            contacts.append(
+                &mut farther_buckets
                     .into_iter()
                     .rev()
                     .flatten()
@@ -167,14 +183,14 @@ impl Kademlia {
             );
         }
 
-        //TODO: sort this by xor distance for maximum spec adherence in the case that we need to hit multiple buckets
-        closer_contacts.into_iter().cloned().collect()
+        //TODO: sort this by xor distance for maximum spec adherence in the case that we need to hit farther buckets
+        Ok(contacts.into_iter().cloned().collect())
     }
 
-    pub fn find_value(&self, key: NodeId) -> FindValueResult {
+    pub fn find_value(&self, key: NodeId) -> Result<FindValueResult> {
         match self.kv_store.get(&key) {
-            Some(path) => FindValueResult::File(path.to_owned()),
-            None => FindValueResult::Contact(self.find_node(key)),
+            Some(path) => Ok(FindValueResult::File(path.to_owned())),
+            None => Ok(FindValueResult::Contact(self.find_node(key)?)),
         }
     }
 
@@ -184,11 +200,60 @@ impl Kademlia {
         todo!()
     }
 
-    //TODO: store, we will implement PING fully in proto.rs
+    // this is actually a good example of simple, idiomatic rust.
+    // we're accepting any data structure that implements Read because this function only
+    // needs to use .read() and it may introdue a burden on later development if we ever want to
+    // write to this from anything that's not a BufReader.
+
+    // this is especially important when you're writing a data structure
+    pub fn store<R: std::io::Read>(
+        &mut self,
+        key: NodeId,
+        reader: R,
+        destination: PathBuf,
+    ) -> Result<()> {
+        let mut file_writer = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&destination)
+            .with_context(|| format!("failed to open {} for writing", destination.display()))?;
+
+        for byte in reader.bytes() {
+            match byte {
+                Ok(byte) => {
+                    file_writer
+                        .write_all(&[byte])
+                        .with_context(|| format!("failed to write to {}", destination.display()))?;
+                }
+                Err(e) => match e.kind() {
+                    ErrorKind::Interrupted => continue,
+                    ErrorKind::ConnectionReset | ErrorKind::UnexpectedEof => break,
+                    // Something actually went wrong (e.g., disk full, permission denied)
+                    _ => {
+                        return Err(e).with_context(|| {
+                            format!(
+                                "failed while reading source bytes for {}",
+                                destination.display()
+                            )
+                        });
+                    }
+                },
+            }
+        }
+
+        file_writer
+            .flush()
+            .with_context(|| format!("failed to flush {}", destination.display()))?;
+        Ok(())
+    }
 
     /// returns the number of matching leading bits of a node id and our node id
     fn routing_index(&self, id: NodeId) -> usize {
-        assert!(id != self.config.node_id, "trying to find routing index of ourselves");
+        assert!(
+            id != self.config.node_id,
+            "trying to find routing index of ourselves"
+        );
         let mut i = 0;
         loop {
             if id[i] == self.config.node_id[i] {
