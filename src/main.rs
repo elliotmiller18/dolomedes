@@ -1,5 +1,5 @@
 mod kadem;
-mod proto;
+mod client;
 
 fn main() {
     println!("Hello, world!");

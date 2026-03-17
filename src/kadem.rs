@@ -102,16 +102,27 @@ pub enum FindValueResult {
     File(PathBuf),
 }
 
-pub struct Kademlia {
+pub struct Kademlia<F, Fut> 
+where 
+
+    F: Fn(&NodeContact) -> Fut,
+    Fut: Future<Output = bool>
+{
     // index zero has a completey different prefix,
     // index one has one matching bit,
     // index two has two, all the way to 256 (which is us)
     routing_table: Vec<VecDeque<NodeContact>>,
     filepaths: HashMap<NodeId, PathBuf>,
     config: RuntimeConfig,
+    ping: F
 }
 
-impl Kademlia {
+impl<F, Fut> Kademlia<F, Fut>
+where 
+    F: Fn(&NodeContact) -> Fut,
+    Fut: Future<Output = bool>
+
+{
     pub const BUCKET_SIZE: usize = 8;
     pub fn new(
         StartConfig {
@@ -119,6 +130,7 @@ impl Kademlia {
             datadir,
             config_path,
         }: StartConfig,
+        ping: F,
     ) -> Result<Self> {
         let mut csprng = OsRng {};
         let signing = SigningKey::generate(&mut csprng);
@@ -146,10 +158,10 @@ impl Kademlia {
             .write_all(content.as_bytes())
             .with_context(|| format!("failed to write config file {}", config_path.display()))?;
 
-        Self::from_config(config_path)
+        Self::from_config(config_path, ping)
     }
 
-    pub fn from_config(config_path: PathBuf) -> Result<Self> {
+    pub fn from_config(config_path: PathBuf, ping: F) -> Result<Self> {
         Ok(Kademlia {
             routing_table: (0..256).map(|_| VecDeque::with_capacity(Self::BUCKET_SIZE)).collect(),
             //OPTIMIZATION: add a floor to this that tells us what the first element of the routing table
@@ -157,6 +169,7 @@ impl Kademlia {
             // this grew to ipfs scale we'd still never fill most of them
             filepaths: HashMap::new(),
             config: RuntimeConfig::from_config(config_path)?,
+            ping
         })
     }
 
@@ -206,8 +219,7 @@ impl Kademlia {
 
     /// update the routing table when we communicate with a
     /// node, confirming that it's alive
-    pub fn update_bucket(&mut self, contact: NodeContact) {
-        //TODO: liveness check here where we ping before evicting
+    pub async fn update_bucket(&mut self, contact: NodeContact) {
         let i = self.routing_index(contact.node_id);
 
         if self.routing_table.get(i).is_none() {
@@ -233,11 +245,19 @@ impl Kademlia {
             // allows for nice graceful disconnect/reconnect cause sometimes someone wants to turn on a vpn or
             // whatever
             bucket.remove(pos).unwrap();
-        } else if bucket.len() == Self::BUCKET_SIZE {
-            bucket.pop_back();       
+            bucket.push_front(contact);
+            return;
+        } 
+        
+        for _ in 0..bucket.len() {
+            let evicted = bucket.pop_back().unwrap();
+            if (self.ping)(&evicted).await {
+                bucket.push_front(evicted);
+            } else {
+                bucket.push_front(contact);
+                break;
+            }
         }
-
-        bucket.push_front(contact);
         
         assert!(bucket.len() <= Self::BUCKET_SIZE);
     }
