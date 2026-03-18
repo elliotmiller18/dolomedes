@@ -223,7 +223,7 @@ where
         let i = self.routing_index(contact.node_id);
 
         if self.routing_table.get(i).is_none() {
-            // this should never run but in case we optimize with lazily initing buckets later we will
+            // NOTE: this should never run but in case we optimize with lazily initing buckets later we will
             // have it for posterity sake
             let mut empty_bucket = VecDeque::new();
             empty_bucket.push_front(contact);
@@ -247,18 +247,17 @@ where
             bucket.remove(pos).unwrap();
             bucket.push_front(contact);
             return;
-        } 
-        
-        for _ in 0..bucket.len() {
+        } else if bucket.len() < Self::BUCKET_SIZE {
+            bucket.push_front(contact);
+        } else {
+            assert!(bucket.len() == Self::BUCKET_SIZE);
             let evicted = bucket.pop_back().unwrap();
             if (self.ping)(&evicted).await {
                 bucket.push_front(evicted);
             } else {
                 bucket.push_front(contact);
-                break;
             }
         }
-        
         assert!(bucket.len() <= Self::BUCKET_SIZE);
     }
 
@@ -268,6 +267,9 @@ where
     // write to this from anything that's not a BufReader.
 
     // this is especially important when you're writing a data structure
+    
+    //TODO: this is, however, a terrible example of efficient Rust. This is writing entire files 1 byte at a time
+    // and is laughably slow, it is spec adherent but needs a refactor 
     pub fn store<R: std::io::Read>(
         &mut self,
         key: NodeId,
