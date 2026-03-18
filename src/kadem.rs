@@ -219,6 +219,8 @@ where
 
     /// update the routing table when we communicate with a
     /// node, confirming that it's alive
+
+    //TODO: this shouldn't be async cause updating a bucket locks up the whole routing table
     pub async fn update_bucket(&mut self, contact: NodeContact) {
         let i = self.routing_index(contact.node_id);
 
