@@ -102,11 +102,10 @@ pub enum FindValueResult {
     File(PathBuf),
 }
 
-pub struct Kademlia<F, Fut> 
-where 
-
+pub struct Kademlia<F, Fut>
+where
     F: Fn(&NodeContact) -> Fut,
-    Fut: Future<Output = bool>
+    Fut: Future<Output = bool>,
 {
     // index zero has a completey different prefix,
     // index one has one matching bit,
@@ -114,14 +113,13 @@ where
     routing_table: Vec<VecDeque<NodeContact>>,
     filepaths: HashMap<NodeId, PathBuf>,
     config: RuntimeConfig,
-    ping: F
+    ping: F,
 }
 
 impl<F, Fut> Kademlia<F, Fut>
-where 
+where
     F: Fn(&NodeContact) -> Fut,
-    Fut: Future<Output = bool>
-
+    Fut: Future<Output = bool>,
 {
     pub const BUCKET_SIZE: usize = 8;
     pub fn new(
@@ -163,13 +161,15 @@ where
 
     pub fn from_config(config_path: PathBuf, ping: F) -> Result<Self> {
         Ok(Kademlia {
-            routing_table: (0..256).map(|_| VecDeque::with_capacity(Self::BUCKET_SIZE)).collect(),
+            routing_table: (0..256)
+                .map(|_| VecDeque::with_capacity(Self::BUCKET_SIZE))
+                .collect(),
             //OPTIMIZATION: add a floor to this that tells us what the first element of the routing table
             // with contacts in it is. chances are we're not gonna fill 0-200 in testing and even if
             // this grew to ipfs scale we'd still never fill most of them
             filepaths: HashMap::new(),
             config: RuntimeConfig::from_config(config_path)?,
-            ping
+            ping,
         })
     }
 
@@ -179,11 +179,15 @@ where
         // all xor distance is is interpreting the size of a ^ b as the distance from a -> b.
         let routing_index = self.routing_index(node_id);
 
-        // closer because nodes with an index >= routing index will always have a lower xor distance 
-        // than nodes that have an index < routing index, see kademlia paper or just read routing_index() 
+        // closer because nodes with an index >= routing index will always have a lower xor distance
+        // than nodes that have an index < routing index, see kademlia paper or just read routing_index()
         // it's intuitive
         let closer_buckets = &self.routing_table[routing_index..self.routing_table.len()];
-        let mut contacts: Vec<&NodeContact> = closer_buckets.iter().flatten().take(Self::BUCKET_SIZE).collect();
+        let mut contacts: Vec<&NodeContact> = closer_buckets
+            .iter()
+            .flatten()
+            .take(Self::BUCKET_SIZE)
+            .collect();
 
         if contacts.len() < Self::BUCKET_SIZE {
             let farther_buckets = &self.routing_table[0..routing_index];
@@ -240,9 +244,10 @@ where
             return;
         }
 
-        if let Some(pos) = bucket.iter().position(|known_contact| {
-            known_contact.node_id == contact.node_id
-        }) {
+        if let Some(pos) = bucket
+            .iter()
+            .position(|known_contact| known_contact.node_id == contact.node_id)
+        {
             // this implicitly allows for us to easily update ip addresses and ports in case of a quick reconfig,
             // allows for nice graceful disconnect/reconnect cause sometimes someone wants to turn on a vpn or
             // whatever
@@ -269,9 +274,9 @@ where
     // write to this from anything that's not a BufReader.
 
     // this is especially important when you're writing a data structure
-    
+
     //TODO: this is, however, a terrible example of efficient Rust. This is writing entire files 1 byte at a time
-    // and is laughably slow, it is spec adherent but needs a refactor 
+    // and is laughably slow, it is spec adherent but needs a refactor
     pub fn store<R: std::io::Read>(
         &mut self,
         key: NodeId,
