@@ -8,5 +8,7 @@ anyhow = "1.0.102"
 deterministic_rand = "0.7.0"
 ed25519-dalek = { version = "2.2.0", features = ["rand_core"] }
 hex = "0.4.3"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
 sha2 = "0.10.9"
 smallvec = "1.15.1"
