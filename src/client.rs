@@ -10,32 +10,32 @@ use anyhow::{Context, Result, bail};
 use deterministic_rand::rngs::OsRng;
 use ed25519_dalek::SigningKey;
 use sha2::Digest;
+use std::convert::Infallible;
 use std::io::Write;
-use std::net::{Ipv4Addr, SocketAddr, TcpStream};
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 
 use crate::kadem::{Kademlia, NodeContact, NodeId};
+use crate::proto::{join_network, ping};
+use crate::terminal::run;
 
-pub fn run(config_path: PathBuf, routing_table_path: Option<PathBuf>) -> Result<()> {
+pub fn serve(config_path: PathBuf, routing_table_path: Option<PathBuf>) -> Result<Infallible> {
     let config = RuntimeConfig::from_config_file(config_path)?;
-
-    let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, config.port));
-    let connection = join_network(addr)?;
 
     let routing_table = match routing_table_path {
         None => Kademlia::new(config.node_id, ping),
         Some(path) => Kademlia::from_file(path, ping)?,
     };
 
-    Ok(())
-}
+    let connection = join_network(&NodeContact {
+        port: config.port,
+        ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+        node_id: config.node_id,
+    })?;
 
-fn join_network(addr: SocketAddr) -> Result<TcpStream> {
-    todo!()
-}
-
-async fn ping(contact: &NodeContact) -> bool {
-    todo!()
+    loop {
+        let cmd = run()?;
+    }
 }
 
 struct RuntimeConfig {

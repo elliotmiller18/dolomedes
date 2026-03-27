@@ -10,9 +10,9 @@ const BUCKET_SIZE: usize = 8;
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct NodeContact {
     //UDP port
-    port: u16,
-    node_id: NodeId,
-    ip: std::net::IpAddr,
+    pub port: u16,
+    pub node_id: NodeId,
+    pub ip: std::net::IpAddr,
 }
 
 pub enum FindValueResult {
