@@ -16,14 +16,13 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 
 use crate::kadem::{Kademlia, NodeContact, NodeId};
-use crate::proto::{join_network, ping};
 use crate::terminal::run;
 
 pub const DEFAULT_PORT: u16 = 31460;
 pub const DEFAULT_CONFIG_PATH: &str = "dolomedes.cfg";
 pub const DEFAULT_DATA_DIR: &str = "dolomedes/data";
 
-struct DolomedesClient<F>
+pub struct DolomedesClient<F>
 where
     F: AsyncFn(&NodeContact) -> bool,
 {
@@ -56,18 +55,11 @@ where
 }
 
 pub fn serve(config_path: PathBuf, routing_table_path: Option<PathBuf>) -> Result<Infallible> {
-    let client = DolomedesClient::with_config(config_path, routing_table_path, ping)?;
-
-    let connection = join_network(&NodeContact {
-        port: client.port,
-        ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
-        node_id: client.node_id,
-    })?;
+    let client = DolomedesClient::with_config(config_path, routing_table_path, crate::proto::ping)?;
 
     //TODO: add handlers for file requests and pings
     loop {
         let cmd = run()?;
-        let _ = (&client.datadir, &client.signing_key, &client.routing_table, &connection, &cmd);
     }
 }
 
