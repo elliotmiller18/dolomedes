@@ -28,6 +28,6 @@ pub async fn request_file(owner: &NodeContact, file: FileId) -> Option<TcpStream
     todo!()
 }
 
-pub async fn stream_file(requester: &NodeContact, file: FileId) -> Result<()> {
-    todo!()
+pub async fn handle_file_request(file: FileId) {
+
 }

@@ -1,5 +1,4 @@
 /// NOTE: this file is vibe coded.
-
 use anyhow::{Context, Result, bail};
 use std::path::PathBuf;
 use std::{io, io::Write};

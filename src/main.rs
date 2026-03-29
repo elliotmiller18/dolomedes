@@ -1,5 +1,4 @@
 /// NOTE: this file is vibe coded.
-
 mod client;
 mod kadem;
 mod proto;
@@ -97,7 +96,7 @@ fn main() -> anyhow::Result<()> {
             datadir,
             port,
         } => {
-            client::setup(config_path, datadir, port)?;
+            client::setup_env(config_path, datadir, port)?;
             Ok(())
         }
     }
