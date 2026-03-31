@@ -46,7 +46,8 @@ impl KademliaData {
                 .collect(),
             //OPTIMIZATION: add a floor to this that tells us what the first element of the routing table
             // with contacts in it is. chances are we're not gonna fill 0-200 in testing and even if
-            // this grew to ipfs scale we'd still never fill most of them
+            // this grew to ipfs scale we'd still never fill most of them,
+            // or even better just use a trie (although in this case a b-tree is a trie)
             filepaths: HashMap::new(),
             node_id,
         }
@@ -66,6 +67,8 @@ where
         }
     }
 
+    //TODO: instead of JSON, we should be writing raw binary probably cause this data structure could be
+    // huge
     pub fn from_file(path: PathBuf, ping: F) -> Result<Self> {
         let file = std::fs::File::open(&path)
             .with_context(|| format!("failed to open routing table {}", path.display()))?;
@@ -131,6 +134,10 @@ where
         Ok(contacts.into_iter().cloned().collect())
     }
 
+    //TODO: I added this when I thought that this data structure would also store 
+    // files, i might want to remove this but i'm not entirely sure? cause my original hope
+    // of a network with people being able to send each other stuff directly or in chunks would
+    // be nice
     pub fn find_value(&self, key: NodeId) -> Result<FindValueResult> {
         match self.data.filepaths.get(&key) {
             Some(path) => Ok(FindValueResult::File(path.to_owned())),
@@ -141,7 +148,8 @@ where
     /// update the routing table when we communicate with a
     /// node, confirming that it's alive
 
-    //TODO: this shouldn't be async cause updating a bucket locks up the whole routing table
+    //TODO: this shouldn't be async cause updating a bucket locks up the whole routing table,
+    // also have a replacement cache 
     pub async fn update_bucket(&mut self, contact: NodeContact) {
         let i = self.routing_index(contact.node_id);
 
@@ -193,7 +201,12 @@ where
     // this is especially important when you're writing a data structure
 
     //TODO: this is, however, a terrible example of efficient Rust. This is writing entire files 1 byte at a time
-    // and is laughably slow, it is spec adherent but needs a refactor
+    // and is laughably slow, it is spec adherent but needs a refactor. Also, this is written like it's taking files when
+    // it's really just a way for people to join the network. May be worth refactoring, but my vision for this network
+    // was to allow people to easily do fun stuff like sharing websites with it so i might keep it
+
+    // also, this isn't really an accurate impl of store because it should be routing the data to nodes closer
+    // to the key per the actual spec of Kademlia
     pub fn store<R: std::io::Read>(
         &mut self,
         key: NodeId,
