@@ -37,7 +37,11 @@ impl<F> DolomedesClient<F>
 where
     F: AsyncFn(&NodeContact) -> bool,
 {
-    pub fn with_config(config_path: PathBuf, routing_table_path: Option<PathBuf>, ping: F) -> Result<Self> {
+    pub fn with_config(
+        config_path: PathBuf,
+        routing_table_path: Option<PathBuf>,
+        ping: F,
+    ) -> Result<Self> {
         let (port, datadir, signing_key, node_id) = read_config_file(&config_path)?;
         let routing_table = match routing_table_path {
             None => Kademlia::new(node_id, ping),
@@ -84,9 +88,9 @@ fn create_config_file(config_path: PathBuf, datadir: PathBuf, port: u16) -> Resu
         "secret_key={}\nport={}\ndatadir={}",
         key_hex,
         port,
-        absolute_datadir.to_str().context(
-            "datadir contains invalid UTF-8 and cannot be written to the config file"
-        )?,
+        absolute_datadir
+            .to_str()
+            .context("datadir contains invalid UTF-8 and cannot be written to the config file")?,
     );
 
     std::fs::OpenOptions::new()

@@ -1,10 +1,11 @@
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
-use std::io::{BufReader, BufWriter, ErrorKind, Write};
+use std::io::{BufReader, BufWriter};
 use std::path::PathBuf;
 
 pub type NodeId = [u8; 32];
+/// This is the variable "K" referred to in K-Buckets and all over the Kademlia paper
 const BUCKET_SIZE: usize = 8;
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -17,7 +18,7 @@ pub struct NodeContact {
 
 pub enum FindValueResult {
     Contact(Vec<NodeContact>),
-    File(PathBuf),
+    Data(Box<[u8]>),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -26,7 +27,7 @@ pub struct KademliaData {
     // index one has one matching bit,
     // index two has two, all the way to 256 (which is us)
     routing_table: Vec<VecDeque<NodeContact>>,
-    filepaths: HashMap<NodeId, PathBuf>,
+    stores: HashMap<NodeId, Box<[u8]>>,
     node_id: NodeId,
 }
 
@@ -48,7 +49,7 @@ impl KademliaData {
             // with contacts in it is. chances are we're not gonna fill 0-200 in testing and even if
             // this grew to ipfs scale we'd still never fill most of them,
             // or even better just use a trie (although in this case a b-tree is a trie)
-            filepaths: HashMap::new(),
+            stores: HashMap::new(),
             node_id,
         }
     }
@@ -95,52 +96,12 @@ where
 
     pub fn find_node(&self, node_id: NodeId) -> Result<Vec<NodeContact>> {
         ensure!(node_id != self.data.node_id, "trying to find ourself");
-        // note: in this function (and elsewhere in this file) further/closer refer to ~~xor distance~~ which is described in the kademlia paper
-        // all xor distance is is interpreting the size of a ^ b as the distance from a -> b.
-        let routing_index = self.routing_index(node_id);
-
-        // closer because nodes with an index >= routing index will always have a lower xor distance
-        // than nodes that have an index < routing index, see kademlia paper or just read routing_index()
-        // it's intuitive
-        let closer_buckets = &self.data.routing_table[routing_index..self.data.routing_table.len()];
-        let mut contacts: Vec<&NodeContact> = closer_buckets
-            .iter()
-            .flatten()
-            .take(Self::BUCKET_SIZE)
-            .collect();
-
-        if contacts.len() < Self::BUCKET_SIZE {
-            let farther_buckets = &self.data.routing_table[0..routing_index];
-            contacts.append(
-                // here we take 16 because it guarantees that if we simply sort by xor distance later
-                // we will get exactly the remaining closest nodes we know about, i believe any less
-                // and we could get a suboptimal one
-                &mut farther_buckets
-                    .into_iter()
-                    .rev()
-                    .flatten()
-                    .take(Self::BUCKET_SIZE * 2)
-                    .collect(),
-            );
-        }
-
-        contacts.sort_unstable_by(|a, b| {
-            let dist_a = Self::xor_distance(a.node_id, node_id);
-            let dist_b = Self::xor_distance(b.node_id, node_id);
-            dist_a.cmp(&dist_b)
-        });
-        contacts.truncate(Self::BUCKET_SIZE);
-
-        Ok(contacts.into_iter().cloned().collect())
+        Ok(self.closest_known_contacts(node_id))
     }
 
-    //TODO: I added this when I thought that this data structure would also store 
-    // files, i might want to remove this but i'm not entirely sure? cause my original hope
-    // of a network with people being able to send each other stuff directly or in chunks would
-    // be nice
     pub fn find_value(&self, key: NodeId) -> Result<FindValueResult> {
-        match self.data.filepaths.get(&key) {
-            Some(path) => Ok(FindValueResult::File(path.to_owned())),
+        match self.data.stores.get(&key) {
+            Some(path) => Ok(FindValueResult::Data(path.to_owned())),
             None => Ok(FindValueResult::Contact(self.find_node(key)?)),
         }
     }
@@ -148,8 +109,8 @@ where
     /// update the routing table when we communicate with a
     /// node, confirming that it's alive
 
-    //TODO: this shouldn't be async cause updating a bucket locks up the whole routing table,
-    // also have a replacement cache 
+    //TODO: should this be async? cause updating a bucket locks up the whole routing table,
+    //TODO: also have a replacement cache
     pub async fn update_bucket(&mut self, contact: NodeContact) {
         let i = self.routing_index(contact.node_id);
 
@@ -193,62 +154,29 @@ where
         assert!(bucket.len() <= Self::BUCKET_SIZE);
     }
 
-    // this is actually a good example of simple, idiomatic rust.
-    // we're accepting any data structure that implements Read because this function only
-    // needs to use .read() and it may introdue a burden on later development if we ever want to
-    // write to this from anything that's not a BufReader.
-
-    // this is especially important when you're writing a data structure
-
-    //TODO: this is, however, a terrible example of efficient Rust. This is writing entire files 1 byte at a time
-    // and is laughably slow, it is spec adherent but needs a refactor. Also, this is written like it's taking files when
-    // it's really just a way for people to join the network. May be worth refactoring, but my vision for this network
-    // was to allow people to easily do fun stuff like sharing websites with it so i might keep it
-
-    // also, this isn't really an accurate impl of store because it should be routing the data to nodes closer
-    // to the key per the actual spec of Kademlia
+    /// Returns closer Nodes that the store should be forwarded to.
+    /// If there are less than K closer nodes or force_save is set we will also save the store.
     pub fn store<R: std::io::Read>(
         &mut self,
         key: NodeId,
-        reader: R,
-        destination: PathBuf,
-    ) -> Result<()> {
-        let mut file_writer = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(&destination)
-            .with_context(|| format!("failed to open {} for writing", destination.display()))?;
+        mut reader: R,
+        force_save: bool,
+    ) -> Result<Vec<NodeContact>> {
+        let self_distance = Self::xor_distance(key, self.data.node_id);
+        let closer_contacts: Vec<NodeContact> = self
+            .closest_known_contacts(key)
+            .into_iter()
+            .filter(|contact| Self::xor_distance(contact.node_id, key) < self_distance)
+            .take(Self::BUCKET_SIZE)
+            .collect();
 
-        for byte in reader.bytes() {
-            match byte {
-                Ok(byte) => {
-                    file_writer
-                        .write_all(&[byte])
-                        .with_context(|| format!("failed to write to {}", destination.display()))?;
-                }
-                Err(e) => match e.kind() {
-                    ErrorKind::Interrupted => continue,
-                    ErrorKind::ConnectionReset | ErrorKind::UnexpectedEof => break,
-                    // Something actually went wrong (e.g., disk full, permission denied)
-                    _ => {
-                        return Err(e).with_context(|| {
-                            format!(
-                                "failed while reading source bytes for {}",
-                                destination.display()
-                            )
-                        });
-                    }
-                },
-            }
+        if closer_contacts.len() <= Self::BUCKET_SIZE || force_save {
+            let mut buffer = Vec::new();
+            reader.read_to_end(&mut buffer)?;
+            self.data.stores.insert(key, buffer.into_boxed_slice());
         }
 
-        file_writer
-            .flush()
-            .with_context(|| format!("failed to flush {}", destination.display()))?;
-
-        self.data.filepaths.insert(key, destination);
-        Ok(())
+        Ok(closer_contacts)
     }
 
     /// returns the number of matching leading bits of a node id and our node id
@@ -269,6 +197,49 @@ where
                 .unwrap();
             break (i * 8) + matching_high_bits;
         }
+    }
+
+    fn closest_known_contacts(&self, target: NodeId) -> Vec<NodeContact> {
+        // note: in this function (and elsewhere in this file) further/closer refer to ~~xor distance~~ which is described in the kademlia paper
+        // all xor distance is is interpreting the size of a ^ b as the distance from a -> b.
+        let routing_index = if target == self.data.node_id {
+            self.data.routing_table.len()
+        } else {
+            self.routing_index(target)
+        };
+
+        // closer because nodes with an index >= routing index will always have a lower xor distance
+        // than nodes that have an index < routing index, see kademlia paper or just read routing_index()
+        // it's intuitive
+        let closer_buckets = &self.data.routing_table[routing_index..self.data.routing_table.len()];
+        let mut contacts: Vec<&NodeContact> = closer_buckets
+            .iter()
+            .flatten()
+            .take(Self::BUCKET_SIZE)
+            .collect();
+
+        if contacts.len() < Self::BUCKET_SIZE {
+            let farther_buckets = &self.data.routing_table[0..routing_index];
+            contacts.extend(
+                // here we take 16 because it guarantees that if we simply sort by xor distance later
+                // we will get exactly the remaining closest nodes we know about, i believe any less
+                // and we could get a suboptimal one
+                farther_buckets
+                    .iter()
+                    .rev()
+                    .flatten()
+                    .take(Self::BUCKET_SIZE * 2),
+            );
+        }
+
+        contacts.sort_unstable_by(|a, b| {
+            let dist_a = Self::xor_distance(a.node_id, target);
+            let dist_b = Self::xor_distance(b.node_id, target);
+            dist_a.cmp(&dist_b)
+        });
+        contacts.truncate(Self::BUCKET_SIZE);
+
+        contacts.into_iter().cloned().collect()
     }
 
     fn xor_distance(a: NodeId, b: NodeId) -> NodeId {

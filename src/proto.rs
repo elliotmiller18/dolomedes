@@ -2,8 +2,8 @@ use std::net::{SocketAddr, TcpStream};
 
 use anyhow::Result;
 
-use crate::kadem::{Kademlia, NodeContact};
 use crate::client::DolomedesClient;
+use crate::kadem::{Kademlia, NodeContact};
 
 pub type FileId = [u8; 32];
 
@@ -15,8 +15,7 @@ where
         todo!()
     }
 
-    pub async fn find_owner() -> Option<NodeContact>
-    {
+    pub async fn find_owner() -> Option<NodeContact> {
         todo!()
     }
 
