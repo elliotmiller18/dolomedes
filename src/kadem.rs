@@ -26,6 +26,9 @@ pub struct KademliaData {
     // index zero has a completey different prefix,
     // index one has one matching bit,
     // index two has two, all the way to 256 (which is us)
+    
+    //TODO: make the routing_table a vec of mutexes so that multiple async fns can use it
+    // at the same time
     routing_table: Vec<VecDeque<NodeContact>>,
     stores: HashMap<NodeId, Box<[u8]>>,
     node_id: NodeId,
@@ -68,14 +71,17 @@ where
         }
     }
 
-    //TODO: instead of JSON, we should be writing raw binary probably cause this data structure could be
-    // huge
     pub fn from_file(path: PathBuf, ping: F) -> Result<Self> {
         let file = std::fs::File::open(&path)
             .with_context(|| format!("failed to open routing table {}", path.display()))?;
         let reader = BufReader::new(file);
-        let data = serde_json::from_reader(reader)
-            .with_context(|| format!("failed to deserialize routing table {}", path.display()))?;
+
+        let data = bincode::deserialize_from(reader).with_context(|| {
+            format!(
+                "failed to deserialize binary routing table {}",
+                path.display()
+            )
+        })?;
 
         Ok(Self { data, ping })
     }
@@ -88,8 +94,13 @@ where
             .open(&path)
             .with_context(|| format!("failed to open routing table {}", path.display()))?;
         let writer = BufWriter::new(file);
-        serde_json::to_writer(writer, &self.data)
-            .with_context(|| format!("failed to serialize routing table {}", path.display()))?;
+
+        bincode::serialize_into(writer, &self.data).with_context(|| {
+            format!(
+                "failed to serialize binary routing table {}",
+                path.display()
+            )
+        })?;
 
         Ok(())
     }
@@ -109,8 +120,7 @@ where
     /// update the routing table when we communicate with a
     /// node, confirming that it's alive
 
-    //TODO: should this be async? cause updating a bucket locks up the whole routing table,
-    //TODO: also have a replacement cache
+    //TODO: makes it so that this doesn't lock up the whole routing table. we need a mutex on each bucket.
     pub async fn update_bucket(&mut self, contact: NodeContact) {
         let i = self.routing_index(contact.node_id);
 
@@ -177,6 +187,15 @@ where
         }
 
         Ok(closer_contacts)
+    }
+
+    pub fn evict_node(&mut self, victim: NodeId) {
+        unimplemented!("remove victim from routing table")
+    }
+
+    // meant for use with a replacement cache
+    pub fn insert_nodes_without_ping(&mut self, nodes: Vec<NodeContact>) {
+        unimplemented!("add buckets")
     }
 
     /// returns the number of matching leading bits of a node id and our node id
