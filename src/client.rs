@@ -29,8 +29,8 @@ where
     port: u16,
     datadir: PathBuf,
     signing_key: SigningKey,
-    node_id: NodeId,
-    routing_table: Kademlia<F>,
+    pub node_id: NodeId,
+    pub routing_table: Kademlia<F>,
 }
 
 impl<F> DolomedesClient<F>

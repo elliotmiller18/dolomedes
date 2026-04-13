@@ -26,7 +26,7 @@ pub struct KademliaData {
     // index zero has a completey different prefix,
     // index one has one matching bit,
     // index two has two, all the way to 256 (which is us)
-    
+
     //TODO: make the routing_table a vec of mutexes so that multiple async fns can use it
     // at the same time
     routing_table: Vec<VecDeque<NodeContact>>,
@@ -198,13 +198,25 @@ where
         for node in nodes {
             let i = self.routing_index(node.node_id);
             // if there's space, insert, otherwise skip because we don't evict older nodes
-            // in favor of newer nodes unless they fail to respond to a ping and the whole 
-            // point of this fn is that we AREN'T pinging 
+            // in favor of newer nodes unless they fail to respond to a ping and the whole
+            // point of this fn is that we AREN'T pinging
             if self.data.routing_table[i].len() != BUCKET_SIZE {
                 assert!(self.data.routing_table[i].len() < BUCKET_SIZE);
                 self.data.routing_table[i].push_back(node);
             }
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.data
+            .routing_table
+            .iter()
+            .map(|bucket| bucket.len())
+            .sum()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// returns the number of matching leading bits of a node id and our node id

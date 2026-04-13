@@ -1,3 +1,4 @@
+#![feature(file_buffered)]
 /// NOTE: this file is vibe coded.
 mod client;
 mod kadem;
