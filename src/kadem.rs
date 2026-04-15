@@ -150,8 +150,6 @@ where
             bucket.remove(pos).unwrap();
             bucket.push_front(contact);
             return;
-        } else if bucket.len() < Self::BUCKET_SIZE {
-            bucket.push_front(contact);
         } else {
             assert!(bucket.len() == Self::BUCKET_SIZE);
             let evicted = bucket.pop_back().unwrap();
@@ -180,7 +178,12 @@ where
             .take(Self::BUCKET_SIZE)
             .collect();
 
-        if closer_contacts.len() <= Self::BUCKET_SIZE || force_save {
+        let should_save = closer_contacts.len() < Self::BUCKET_SIZE
+            || closer_contacts
+                .iter()
+                .any(|c| Self::xor_distance(key, c.node_id) > self_distance);
+
+        if should_save || force_save {
             let mut buffer = Vec::new();
             reader.read_to_end(&mut buffer)?;
             self.data.stores.insert(key, buffer.into_boxed_slice());
@@ -202,7 +205,7 @@ where
             // point of this fn is that we AREN'T pinging
             if self.data.routing_table[i].len() != BUCKET_SIZE {
                 assert!(self.data.routing_table[i].len() < BUCKET_SIZE);
-                self.data.routing_table[i].push_back(node);
+                self.data.routing_table[i].push_front(node);
             }
         }
     }
@@ -227,6 +230,10 @@ where
         );
         let mut i = 0;
         loop {
+            assert!(
+                i < std::mem::size_of::<NodeId>(),
+                "routing_index loop overran node id bounds"
+            );
             if id[i] == self.data.node_id[i] {
                 i += 1;
                 continue;
@@ -239,6 +246,7 @@ where
         }
     }
 
+    /// returns the k closest known contacts to target, if routing table has under k nodes it returns all nodes in the routing table
     fn closest_known_contacts(&self, target: NodeId) -> Vec<NodeContact> {
         // note: in this function (and elsewhere in this file) further/closer refer to ~~xor distance~~ which is described in the kademlia paper
         // all xor distance is is interpreting the size of a ^ b as the distance from a -> b.
