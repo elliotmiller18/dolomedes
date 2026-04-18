@@ -6,6 +6,8 @@
     store (upload a file)
 */
 
+//TODO: this file blows and is full of issues, rewrite
+
 use anyhow::{Context, Result, bail};
 use deterministic_rand::rngs::OsRng;
 use ed25519_dalek::SigningKey;
@@ -16,7 +18,6 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 
 use crate::kadem::{Kademlia, NodeContact, NodeId};
-use crate::terminal::run;
 
 pub const DEFAULT_PORT: u16 = 31460;
 pub const DEFAULT_CONFIG_PATH: &str = "dolomedes.cfg";
@@ -60,11 +61,7 @@ where
 
 pub fn serve(config_path: PathBuf, routing_table_path: Option<PathBuf>) -> Result<Infallible> {
     let client = DolomedesClient::with_config(config_path, routing_table_path, crate::proto::ping)?;
-
-    //TODO: add handlers for file requests and pings
-    loop {
-        let cmd = run()?;
-    }
+    unimplemented!();
 }
 
 pub fn setup_env(config_path: PathBuf, datadir: PathBuf, port: u16) -> Result<()> {
