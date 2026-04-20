@@ -2,16 +2,26 @@ use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
 
 use anyhow::{Result, ensure};
+use crypto_bigint::U256;
+use ed25519_dalek::{SigningKey, VerifyingKey};
 
 use crate::client::DolomedesClient;
 use crate::kadem::{Kademlia, NodeContact};
 
-pub type FileId = [u8; 32];
+pub type FileId = U256;
+pub const POW_LEADING_ZEROES: usize = 24;
 
 impl<F> DolomedesClient<F>
 where
     F: AsyncFn(&NodeContact) -> bool,
 {
+    fn send(signing_key: SigningKey, recipient: &NodeContact, payload: &[u8]) -> Result<()> {
+        unimplemented!();
+    }
+
+    fn verify(verifying_key: VerifyingKey, payload: &[u8]) -> bool {
+        unimplemented!();
+    }
     //TODO: implement proper key verification in here right now this is entirely unsecured.
 
     /// join the dolomedes network for the **first** time, or if your routing table is lost.
@@ -38,6 +48,8 @@ where
                     .store(self.node_id, &[0xFFu8][..], true)?;
             }
         };
+
+        let pow_nonce: U256 = crate::pow::generate_entry_nonce(self.signing_key.verifying_key(), POW_LEADING_ZEROES);
 
         ensure!(!self.routing_table.is_empty());
         Ok(())

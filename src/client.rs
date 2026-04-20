@@ -9,6 +9,7 @@
 //TODO: this file blows and is full of issues, rewrite
 
 use anyhow::{Context, Result, bail};
+use crypto_bigint::U256;
 use deterministic_rand::rngs::OsRng;
 use ed25519_dalek::SigningKey;
 use sha2::Digest;
@@ -29,7 +30,7 @@ where
 {
     port: u16,
     datadir: PathBuf,
-    signing_key: SigningKey,
+    pub signing_key: SigningKey,
     pub node_id: NodeId,
     pub routing_table: Kademlia<F>,
 }
@@ -152,10 +153,7 @@ fn read_config_file(path: &PathBuf) -> Result<(u16, PathBuf, SigningKey, NodeId)
 
     let signing_key = SigningKey::from_bytes(&secret_key);
     let verifying_key = signing_key.verifying_key();
-    let node_id: NodeId = sha2::Sha256::digest(verifying_key.as_bytes())
-        .as_slice()
-        .try_into()
-        .expect("sha256 output must be 32 bytes");
+    let node_id = U256::from_be_slice(sha2::Sha256::digest(verifying_key.as_bytes()).as_slice());
 
     Ok((
         port.context("missing port in config file")?,

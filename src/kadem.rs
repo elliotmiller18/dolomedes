@@ -1,10 +1,11 @@
 use anyhow::{Context, Result, ensure};
+use crypto_bigint::U256;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufReader, BufWriter};
 use std::path::PathBuf;
 
-pub type NodeId = [u8; 32];
+pub type NodeId = U256;
 /// This is the variable "K" referred to in K-Buckets and all over the Kademlia paper
 const BUCKET_SIZE: usize = 8;
 
@@ -228,22 +229,10 @@ where
             id != self.data.node_id,
             "trying to find routing index of ourselves"
         );
-        let mut i = 0;
-        loop {
-            assert!(
-                i < std::mem::size_of::<NodeId>(),
-                "routing_index loop overran node id bounds"
-            );
-            if id[i] == self.data.node_id[i] {
-                i += 1;
-                continue;
-            }
-            let matching_high_bits: usize = (self.data.node_id[i] ^ id[i])
-                .leading_zeros()
-                .try_into()
-                .unwrap();
-            break (i * 8) + matching_high_bits;
-        }
+        Self::xor_distance(id, self.data.node_id)
+            .leading_zeros()
+            .try_into()
+            .unwrap()
     }
 
     /// returns the k closest known contacts to target, if routing table has under k nodes it returns all nodes in the routing table
@@ -291,10 +280,6 @@ where
     }
 
     fn xor_distance(a: NodeId, b: NodeId) -> NodeId {
-        let mut result: NodeId = [0u8; 32];
-        for i in 0..a.len() {
-            result[i] = a[i] ^ b[i];
-        }
-        result
+        a ^ b
     }
 }

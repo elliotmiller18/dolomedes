@@ -3,6 +3,7 @@
 mod client;
 mod kadem;
 mod proto;
+mod pow;
 
 use clap::{CommandFactory, Parser, Subcommand, error::ErrorKind};
 
