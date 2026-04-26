@@ -6,7 +6,8 @@
     store (upload a file)
 */
 
-//TODO: this file blows and is full of issues, rewrite
+//TODO: this file blows and is full of issues, rewrite. also maybe rename from client? idk
+// cause we implement client mostly in proto.rs
 
 use anyhow::{Context, Result, bail};
 use crypto_bigint::U256;
@@ -15,7 +16,6 @@ use ed25519_dalek::SigningKey;
 use sha2::Digest;
 use std::convert::Infallible;
 use std::io::Write;
-use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 
 use crate::kadem::{Kademlia, NodeContact, NodeId};
@@ -28,11 +28,12 @@ pub struct DolomedesClient<F>
 where
     F: AsyncFn(&NodeContact) -> bool,
 {
-    port: u16,
-    datadir: PathBuf,
+    pub port: u16,
+    pub datadir: PathBuf,
     pub signing_key: SigningKey,
     pub node_id: NodeId,
     pub routing_table: Kademlia<F>,
+    //TODO: should probably have some ds with contact -> connection pool here
 }
 
 impl<F> DolomedesClient<F>

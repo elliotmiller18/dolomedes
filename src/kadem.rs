@@ -223,6 +223,10 @@ where
         self.len() == 0
     }
 
+    pub fn nodes(&self) -> impl Iterator<Item = &NodeContact> {
+        self.data.routing_table.iter().flatten()
+    }
+
     /// returns the number of matching leading bits of a node id and our node id
     fn routing_index(&self, id: NodeId) -> usize {
         assert!(

@@ -1,0 +1,18 @@
+(everything in bytes)
+
+all packets end with the following
+[unix timestamp](8)
+[signature](64)
+note that node id is just a hash of the verifying key so it can be derived when we're checking a node's POW.
+
+join:
+[0xA2](1)
+[udp port](2)
+[pow nonce](32)
+[verifying key](32)
+
+join rejected: 
+[0xA0]
+
+join accepted:
+[0xA1]

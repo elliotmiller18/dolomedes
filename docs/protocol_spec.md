@@ -1,3 +1,5 @@
+# THIS IS DATED JUST USING IT AS A REFERENCE, IGNORE
+
 # Protocol
 
 ## Encoding Rules
