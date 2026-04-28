@@ -194,7 +194,7 @@ where
     }
 
     pub fn evict_node(&mut self, victim: NodeId) {
-        unimplemented!("remove node from routing table")
+        todo!("remove node from routing table")
     }
 
     // assumes that all inserted nodes have been recently confirmed to be live and skips ping

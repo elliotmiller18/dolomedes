@@ -63,7 +63,7 @@ where
 
 pub fn serve(config_path: PathBuf, routing_table_path: Option<PathBuf>) -> Result<Infallible> {
     let client = DolomedesClient::with_config(config_path, routing_table_path, crate::proto::ping)?;
-    unimplemented!();
+    todo!();
 }
 
 pub fn setup_env(config_path: PathBuf, datadir: PathBuf, port: u16) -> Result<()> {
