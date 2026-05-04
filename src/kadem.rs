@@ -198,16 +198,14 @@ where
     }
 
     // assumes that all inserted nodes have been recently confirmed to be live and skips ping
-    pub fn insert_nodes_without_ping(&mut self, nodes: Vec<NodeContact>) {
-        for node in nodes {
-            let i = self.routing_index(node.node_id);
-            // if there's space, insert, otherwise skip because we don't evict older nodes
-            // in favor of newer nodes unless they fail to respond to a ping and the whole
-            // point of this fn is that we AREN'T pinging
-            if self.data.routing_table[i].len() != BUCKET_SIZE {
-                assert!(self.data.routing_table[i].len() < BUCKET_SIZE);
-                self.data.routing_table[i].push_front(node);
-            }
+    pub fn try_insert_node_without_ping(&mut self, node: NodeContact) {
+        let i = self.routing_index(node.node_id);
+        // if there's space, insert, otherwise skip because we don't evict older nodes
+        // in favor of newer nodes unless they fail to respond to a ping and the whole
+        // point of this fn is that we AREN'T pinging
+        if self.data.routing_table[i].len() != BUCKET_SIZE {
+            assert!(self.data.routing_table[i].len() < BUCKET_SIZE);
+            self.data.routing_table[i].push_front(node);
         }
     }
 

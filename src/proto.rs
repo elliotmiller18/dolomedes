@@ -17,35 +17,45 @@ where
     F: AsyncFn(&NodeContact) -> bool,
 {
     /// join the dolomedes network for the **first** time, or if your routing table is lost.
-
-    // TODO: we should somehow discourage rejoining on the same node id to prevent different nodes
-    // from having conflicting versions of home pages
     pub fn join_network(&mut self, genesis_nodes: Vec<NodeContact>) -> Result<()> {
-        self.routing_table.insert_nodes_without_ping(genesis_nodes);
-        ensure!(!self.routing_table.is_empty());
-
         let pow_nonce: U256 =
             crate::pow::generate_entry_nonce(self.signing_key.verifying_key(), POW_LEADING_ZEROES);
         let join_message = Message::new(
             MessageType::JoinNetwork(
                 self.port,
-                pow_nonce.clone(),
+                pow_nonce,
                 self.signing_key.verifying_key(),
             ),
-            self.signing_key.clone(),
+            &self.signing_key,
         );
 
-        //TODO: this is pretty ugly (especially to do twice), will fix when we get better structure with mutexes on buckets.
-        // or maybe just reshape this? or just not returning a reference yk idrk...
-        let nodes: Vec<NodeContact> = self.routing_table.nodes().map(|c| c.clone()).collect();
-        for node in nodes {
-            self.send(join_message.clone(), &node)?;
+        // send join network to genesis nodes, 
+        for node in genesis_nodes {
+            if self.send(&join_message, &node)? {
+                self.routing_table.try_insert_node_without_ping(node);   
+            } else {
+                tracing::warn!("genesis node {} failed to respond", node.node_id);
+            }
         }
+        ensure!(!self.routing_table.is_empty());
 
-        let store_nodes = self.routing_table.store(self.node_id, pow_nonce.to_le_bytes().as_slice(), true)?;
+        let store_nodes =
+            self.routing_table
+                .store(self.node_id, pow_nonce.to_le_bytes().as_slice(), true)?;
+
+        let store_message = Message::new(
+            MessageType::Store(
+                32,
+                self.node_id,
+                Box::from(pow_nonce.to_le_bytes().as_slice()),
+            ),
+            &self.signing_key,
+        );
 
         for node in store_nodes {
-            self.send(join_message.clone(), &node)?;
+            if !self.send(&store_message, &node)? {
+                self.routing_table.evict_node(node.node_id);  
+            }
         }
 
         Ok(())
@@ -68,16 +78,16 @@ where
         todo!()
     }
 
-    fn send(&mut self, message: Message, recipient: &NodeContact) -> Result<()> {
+    /// sends a message to NodeContact and returns whether or not it got a response.
+    fn send(&self, message: &Message, recipient: &NodeContact) -> Result<bool> {
+        //TODO: down the line MSG_ZEROCOPY might be useful for seeding, as we're sending the same or an almost identical packet
+        // over and over to different sources. 
+
         // note that here we should adjust our table based on who fails to respond. if
         // something times out that means that node needs to be evicted.
 
         // also im thinking when this errors it's like an OS or Network error, not just
         // that we couldn't find the sender. maybe return Result<bool>?
-        todo!();
-    }
-
-    fn verify(mut self, message: Message, verifying_key: VerifyingKey) -> bool {
         todo!();
     }
 }
