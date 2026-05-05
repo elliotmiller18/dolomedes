@@ -61,20 +61,16 @@ where
         Ok(())
     }
 
-    pub async fn find_owner(file: FileId) -> Option<NodeContact> {
-        todo!();
-    }
-
     // just a note for future implementation, the smartest design is probably one where a node can request chunks of arbitrary
     // size from owners and they can set their own rate limits rather than requesting full files.
-    pub async fn request_file(owners: Vec<&NodeContact>, file: FileId) -> Option<TcpStream> {
+    pub async fn request_file(&mut self, owners: Vec<&NodeContact>, file: FileId) -> Option<TcpStream> {
         todo!()
     }
 
     //TODO: I'm concerned that nodes will converge on similar k-buckets for a file and if it's popular, we could have an
     // extremely popular file effectively capped at 8 seeders -- find a way to fix this
     // (maybe if we're unable to handle a request we can return a node that the requester is unlikely to have (eg our newest node?)
-    pub async fn handle_file_request(file: FileId) -> Result<()> {
+    pub async fn handle_chunk_request(file: FileId) -> Result<()> {
         todo!()
     }
 

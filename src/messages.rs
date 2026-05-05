@@ -50,7 +50,8 @@ pub enum MessageType {
     JoinReject,
     // file size (bytes), file id, file data (should be small, always a nonce rn)
     Store(u32, FileId, Box<[u8]>),
-    RequestFile(FileId),
+    // chunk index (0-indexed), chunk size (bytes), file id
+    ChunkRequest(u32, u32, FileId),
     // chunk index (0-indexed), chunk size (bytes), file id, file data (maybe asser that it's the size of arg 2?)
     Chunk(u32, u32, FileId, Box<[u8]>),
     // chunk index (0-indexed), FileId
