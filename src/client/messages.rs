@@ -1,11 +1,11 @@
 use crypto_bigint::U256;
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 
-use crate::client::proto::FileId;
+use crate::client::request::FileId;
 
 #[derive(Clone)]
 pub struct Message {
-    payload: Box<[u8]>,
+    pub payload: Box<[u8]>,
     signature: Signature,
     timestamp: u64,
 }
@@ -50,16 +50,22 @@ pub enum MessageType {
     JoinReject,
     // file size (bytes), file id, file data (should be small, always a nonce rn)
     Store(u32, FileId, Box<[u8]>),
+    StoreAck,
     // chunk index (0-indexed), chunk size (bytes), file id
     ChunkRequest(u32, u32, FileId),
     // chunk index (0-indexed), chunk size (bytes), file id, file data (maybe asser that it's the size of arg 2?)
     Chunk(u32, u32, FileId, Box<[u8]>),
     // chunk index (0-indexed), FileId
     ChunkAck(u32, FileId),
+    InvalidMessage,
 }
 
 impl MessageType {
     pub fn to_payload(self) -> Box<[u8]> {
+        todo!()
+    }
+
+    pub fn from_payload(payload: Box<[u8]>) -> Self {
         todo!()
     }
 }
