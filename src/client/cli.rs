@@ -1,17 +1,16 @@
 /// This file is responsible for the DolomedesClient CLI
-
 use crate::client::DolomedesClient;
-use crate::client::proto::ping;
+use crate::client::request::ping;
 use crate::kadem::{Kademlia, NodeContact, NodeId};
 
 use anyhow::{Context, Result, bail};
-use ed25519_dalek::SigningKey;
-use std::path::PathBuf;
-use std::convert::Infallible;
-use deterministic_rand::rngs::OsRng;
 use crypto_bigint::U256;
-use std::io::Write;
+use deterministic_rand::rngs::OsRng;
+use ed25519_dalek::SigningKey;
 use sha2::Digest;
+use std::convert::Infallible;
+use std::io::Write;
+use std::path::PathBuf;
 
 impl<F> DolomedesClient<F>
 where
