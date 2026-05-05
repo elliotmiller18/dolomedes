@@ -1,7 +1,7 @@
 use crypto_bigint::U256;
-use ed25519_dalek::{Signature, SignatureError, Signer, SigningKey, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 
-use crate::proto::FileId;
+use crate::client::proto::FileId;
 
 #[derive(Clone)]
 pub struct Message {
