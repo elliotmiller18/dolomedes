@@ -1,13 +1,10 @@
-use std::net::TcpStream;
-use std::path::PathBuf;
+use crate::client::DolomedesClient;
+use crate::messages::{Message, MessageType};
+use crate::kadem::{NodeContact};
 
+use std::net::TcpStream;
 use anyhow::{Result, ensure};
 use crypto_bigint::U256;
-use ed25519_dalek::VerifyingKey;
-
-use crate::client::DolomedesClient;
-use crate::kadem::NodeContact;
-use crate::messages::{Message, MessageType};
 
 pub type FileId = U256;
 pub const POW_LEADING_ZEROES: usize = 24;
@@ -19,7 +16,7 @@ where
     /// join the dolomedes network for the **first** time, or if your routing table is lost.
     pub fn join_network(&mut self, genesis_nodes: Vec<NodeContact>) -> Result<()> {
         let pow_nonce: U256 =
-            crate::pow::generate_entry_nonce(self.signing_key.verifying_key(), POW_LEADING_ZEROES);
+        crate::pow::generate_entry_nonce(self.signing_key.verifying_key(), POW_LEADING_ZEROES);
         let join_message = Message::new(
             MessageType::JoinNetwork(
                 self.port,
@@ -40,8 +37,8 @@ where
         ensure!(!self.routing_table.is_empty());
 
         let store_nodes =
-            self.routing_table
-                .store(self.node_id, pow_nonce.to_le_bytes().as_slice(), true)?;
+        self.routing_table
+            .store(self.node_id, pow_nonce.to_le_bytes().as_slice(), true)?;
 
         let store_message = Message::new(
             MessageType::Store(

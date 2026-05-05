@@ -1,40 +1,15 @@
-/*
-    we'll have:
-    ping (self explanatory)
-    find_node (returns k closest nodes)
-    find_value (returns k closest nodes or value if it's stored here)
-    store (upload a file)
-*/
-
-//TODO: this file blows and is full of issues, rewrite. also maybe rename from client? idk
-// cause we implement client mostly in proto.rs
-
-use anyhow::{Context, Result, bail};
-use crypto_bigint::U256;
-use deterministic_rand::rngs::OsRng;
-use ed25519_dalek::SigningKey;
-use sha2::Digest;
-use std::convert::Infallible;
-use std::io::Write;
-use std::path::PathBuf;
-
+use crate::client::DolomedesClient;
+use crate::client::proto::ping;
 use crate::kadem::{Kademlia, NodeContact, NodeId};
 
-pub const DEFAULT_PORT: u16 = 31460;
-pub const DEFAULT_CONFIG_PATH: &str = "dolomedes.cfg";
-pub const DEFAULT_DATA_DIR: &str = "dolomedes/data";
-
-pub struct DolomedesClient<F>
-where
-    F: AsyncFn(&NodeContact) -> bool,
-{
-    pub port: u16,
-    pub datadir: PathBuf,
-    pub signing_key: SigningKey,
-    pub node_id: NodeId,
-    pub routing_table: Kademlia<F>,
-    //TODO: should probably have some ds with contact -> connection pool here
-}
+use anyhow::{Context, Result, bail};
+use ed25519_dalek::SigningKey;
+use std::path::PathBuf;
+use std::convert::Infallible;
+use deterministic_rand::rngs::OsRng;
+use crypto_bigint::U256;
+use std::io::Write;
+use sha2::Digest;
 
 impl<F> DolomedesClient<F>
 where
@@ -62,7 +37,7 @@ where
 }
 
 pub fn serve(config_path: PathBuf, routing_table_path: Option<PathBuf>) -> Result<Infallible> {
-    let client = DolomedesClient::with_config(config_path, routing_table_path, crate::proto::ping)?;
+    let client = DolomedesClient::with_config(config_path, routing_table_path, ping)?;
     todo!();
 }
 

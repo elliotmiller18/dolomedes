@@ -4,7 +4,6 @@ mod client;
 mod kadem;
 mod messages;
 mod pow;
-mod proto;
 
 use clap::{CommandFactory, Parser, Subcommand, error::ErrorKind};
 
@@ -90,7 +89,7 @@ fn main() -> anyhow::Result<()> {
             config_path,
             routing_table_path,
         } => {
-            let never = client::serve(config_path, routing_table_path)?;
+            let never = client::cli::serve(config_path, routing_table_path)?;
             match never {}
         }
         Mode::Setup {
@@ -98,7 +97,7 @@ fn main() -> anyhow::Result<()> {
             datadir,
             port,
         } => {
-            client::setup_env(config_path, datadir, port)?;
+            client::cli::setup_env(config_path, datadir, port)?;
             Ok(())
         }
     }
