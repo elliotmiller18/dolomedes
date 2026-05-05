@@ -3,6 +3,7 @@
 
 pub mod cli;
 pub mod proto;
+mod messages;
 
 use ed25519_dalek::SigningKey;
 use std::path::PathBuf;

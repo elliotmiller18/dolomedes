@@ -1,7 +1,6 @@
 /// This file is responsible for handling the network protocol used by the DolomedesClient
 
-use crate::client::DolomedesClient;
-use crate::messages::{Message, MessageType};
+use crate::client::{DolomedesClient, messages::{Message, MessageType}};
 use crate::kadem::{NodeContact};
 
 use std::net::TcpStream;

@@ -2,7 +2,6 @@
 /// NOTE: this file is vibe coded.
 mod client;
 mod kadem;
-mod messages;
 mod pow;
 
 use clap::{CommandFactory, Parser, Subcommand, error::ErrorKind};
