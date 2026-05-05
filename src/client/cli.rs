@@ -1,3 +1,5 @@
+/// This file is responsible for the DolomedesClient CLI
+
 use crate::client::DolomedesClient;
 use crate::client::proto::ping;
 use crate::kadem::{Kademlia, NodeContact, NodeId};
