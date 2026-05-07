@@ -163,6 +163,7 @@ where
         assert!(bucket.len() <= Self::BUCKET_SIZE);
     }
 
+    /// Response to a STORE rpc.
     /// Returns closer Nodes that the store should be forwarded to.
     /// If there are less than K closer nodes or force_save is set we will also save the store.
     pub fn store<R: std::io::Read>(

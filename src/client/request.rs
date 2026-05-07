@@ -36,22 +36,21 @@ where
         }
         ensure!(!self.routing_table.is_empty());
 
-        let store_nodes =
-            self.routing_table
-                .store(self.node_id, pow_nonce.to_le_bytes().as_slice(), true)?;
+        self.store(self.node_id, Box::from(pow_nonce.to_le_bytes().as_slice()))?;
 
+        Ok(())
+    }
+
+    pub fn store(&mut self, key: FileId, value: Box<[u8]>) -> Result<()> {
+        let recipients = self.routing_table.store(key, value.as_ref(), true)?;
         let store_message = Message::new(
-            MessageType::Store(
-                32,
-                self.node_id,
-                Box::from(pow_nonce.to_le_bytes().as_slice()),
-            ),
+            MessageType::Store(32, self.node_id, value),
             &self.signing_key,
         );
 
-        for node in store_nodes {
+        for node in recipients {
             if !matches!(
-                MessageType::from_payload(self.send(&join_message, &node)?.payload),
+                MessageType::from_payload(self.send(&store_message, &node)?.payload),
                 MessageType::StoreAck
             ) {
                 self.routing_table.evict_node(node.node_id);
