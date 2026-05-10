@@ -1,8 +1,8 @@
 /// This file is handles the all requests the DolomedesClients can issue
-use crate::client::{
+use crate::{client::{
     DolomedesClient,
     messages::{Message, MessageType},
-};
+}};
 use crate::kadem::NodeContact;
 
 use anyhow::{Result, ensure};
@@ -11,10 +11,7 @@ use crypto_bigint::U256;
 pub type FileId = U256;
 pub const POW_LEADING_ZEROES: usize = 24;
 
-impl<F> DolomedesClient<F>
-where
-    F: AsyncFn(&NodeContact) -> bool,
-{
+impl DolomedesClient {
     /// join the dolomedes network for the **first** time, or if your routing table is lost.
     pub fn join_network(&mut self, genesis_nodes: Vec<NodeContact>) -> Result<()> {
         let pow_nonce: U256 =
@@ -82,9 +79,15 @@ where
         // that we couldn't find the sender. maybe return Result<bool>?
         todo!();
     }
+
+    async fn ping(&mut self, receiver: &NodeContact) -> bool {
+        let rpc_id = self.node_id;
+        let message = Message::new(MessageType::Ping(rpc_id), &self.signing_key);
+
+        match self.send(&message, receiver) {
+            Ok(_) => true,
+            Err(_) => false
+        }
+    }
 }
 
-// this is needed as a type param for client so it's not in client
-pub async fn ping(contact: &NodeContact) -> bool {
-    todo!()
-}
