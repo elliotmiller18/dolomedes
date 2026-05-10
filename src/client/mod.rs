@@ -2,9 +2,9 @@
 // cause we implement client mostly in proto.rs
 
 pub mod cli;
+pub mod fileshare;
 mod messages;
-pub mod request;
-pub mod response;
+pub mod routing;
 
 use crate::kadem::{Kademlia, NodeContact, NodeId};
 use ed25519_dalek::SigningKey;

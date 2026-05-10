@@ -42,6 +42,9 @@ where
     }
 
     pub fn store(&mut self, key: FileId, value: Box<[u8]>) -> Result<()> {
+        //TODO: we need to also maintain seeder lists (lists of nodes actually seeding files)
+        // here as the way it's supposed to work is that nodes near a value, so maybe we can add an
+        // optional original sender field to the protocol
         let recipients = self.routing_table.store(key, value.as_ref(), true)?;
         let store_message = Message::new(
             MessageType::Store(32, self.node_id, value),
@@ -58,29 +61,6 @@ where
         }
 
         Ok(())
-    }
-
-    //TODO: should impement these functions so that they get a vec of mutexes around the k buckets that they should be
-    // querying rather than needing a full mutable reference to the routing table, as we won't be able to have multiple threads up at once
-    // all mutably borrowing the routing table
-
-    // just a note for future implementation, the smartest design is probably one where a node can request chunks of arbitrary
-    // size from owners and they can set their own rate limits rather than requesting full files.
-    pub async fn request_file(&mut self, file: FileId) -> Result<()> {
-        todo!()
-    }
-
-    /// sends a message to NodeContact and returns whether or not it got a response.
-    fn send(&self, message: &Message, recipient: &NodeContact) -> Result<Message> {
-        //TODO: down the line MSG_ZEROCOPY might be useful for seeding, as we're sending the same or an almost identical packet
-        // over and over to different sources.
-
-        // note that here we should adjust our table based on who fails to respond. if
-        // something times out that means that node needs to be evicted.
-
-        // also im thinking when this errors it's like an OS or Network error, not just
-        // that we couldn't find the sender. maybe return Result<bool>?
-        todo!();
     }
 }
 

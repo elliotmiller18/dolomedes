@@ -1,7 +1,10 @@
+use crate::client::DolomedesClient;
+use anyhow::Result;
 use crypto_bigint::U256;
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 
-use crate::client::request::FileId;
+use crate::client::routing::FileId;
+use crate::kadem::NodeContact;
 
 #[derive(Clone)]
 pub struct Message {
@@ -67,5 +70,23 @@ impl MessageType {
 
     pub fn from_payload(payload: Box<[u8]>) -> Self {
         todo!()
+    }
+}
+
+impl<F> DolomedesClient<F>
+where
+    F: AsyncFn(&NodeContact) -> bool,
+{
+    /// sends a message to NodeContact and returns whether or not it got a response.
+    pub(crate) fn send(&self, message: &Message, recipient: &NodeContact) -> Result<Message> {
+        //TODO: down the line MSG_ZEROCOPY might be useful for seeding, as we're sending the same or an almost identical packet
+        // over and over to different sources.
+
+        // note that here we should adjust our table based on who fails to respond. if
+        // something times out that means that node needs to be evicted.
+
+        // also im thinking when this errors it's like an OS or Network error, not just
+        // that we couldn't find the sender. maybe return Result<bool>?
+        todo!();
     }
 }
