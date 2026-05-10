@@ -35,12 +35,8 @@ pub struct KademliaData {
     node_id: NodeId,
 }
 
-pub struct Kademlia<F>
-where
-    F: AsyncFn(&NodeContact) -> bool,
-{
+pub struct Kademlia {
     data: KademliaData,
-    ping: F,
 }
 
 impl KademliaData {
@@ -59,20 +55,16 @@ impl KademliaData {
     }
 }
 
-impl<F> Kademlia<F>
-where
-    F: AsyncFn(&NodeContact) -> bool,
-{
+impl Kademlia {
     pub const BUCKET_SIZE: usize = BUCKET_SIZE;
 
-    pub fn new(node_id: NodeId, ping: F) -> Self {
+    pub fn new(node_id: NodeId) -> Self {
         Self {
             data: KademliaData::new(node_id),
-            ping,
         }
     }
 
-    pub fn from_file(path: PathBuf, ping: F) -> Result<Self> {
+    pub fn from_file(path: PathBuf) -> Result<Self> {
         let file = std::fs::File::open(&path)
             .with_context(|| format!("failed to open routing table {}", path.display()))?;
         let reader = BufReader::new(file);
@@ -84,7 +76,7 @@ where
             )
         })?;
 
-        Ok(Self { data, ping })
+        Ok(Self { data })
     }
 
     pub fn to_file(&self, path: PathBuf) -> Result<()> {
@@ -154,11 +146,12 @@ where
         } else {
             assert!(bucket.len() == Self::BUCKET_SIZE);
             let evicted = bucket.pop_back().unwrap();
-            if (self.ping)(&evicted).await {
-                bucket.push_front(evicted);
-            } else {
-                bucket.push_front(contact);
-            }
+            // if (self.ping)(&evicted).await {
+            //     bucket.push_front(evicted);
+            // } else {
+            //     bucket.push_front(contact);
+            // }
+            bucket.push_front(contact);
         }
         assert!(bucket.len() <= Self::BUCKET_SIZE);
     }

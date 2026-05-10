@@ -1,7 +1,7 @@
 use crypto_bigint::U256;
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 
-use crate::client::request::FileId;
+use crate::{client::request::FileId, kadem::NodeId};
 
 #[derive(Clone)]
 pub struct Message {
@@ -48,6 +48,8 @@ pub enum MessageType {
     JoinNetwork(u16, U256, VerifyingKey),
     JoinAck,
     JoinReject,
+    Ping(NodeId),
+    PingAck,
     // file size (bytes), file id, file data (should be small, always a nonce rn)
     Store(u32, FileId, Box<[u8]>),
     StoreAck,
