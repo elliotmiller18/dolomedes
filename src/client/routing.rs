@@ -11,10 +11,7 @@ use crypto_bigint::U256;
 pub type FileId = U256;
 pub const POW_LEADING_ZEROES: usize = 24;
 
-impl<F> DolomedesClient<F>
-where
-    F: AsyncFn(&NodeContact) -> bool,
-{
+impl DolomedesClient {
     /// join the dolomedes network for the **first** time, or if your routing table is lost.
     pub fn join_network(&mut self, genesis_nodes: Vec<NodeContact>) -> Result<()> {
         let pow_nonce: U256 =

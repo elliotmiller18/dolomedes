@@ -73,10 +73,7 @@ impl MessageType {
     }
 }
 
-impl<F> DolomedesClient<F>
-where
-    F: AsyncFn(&NodeContact) -> bool,
-{
+impl DolomedesClient {
     /// sends a message to NodeContact and returns whether or not it got a response.
     pub(crate) fn send(&self, message: &Message, recipient: &NodeContact) -> Result<Message> {
         //TODO: down the line MSG_ZEROCOPY might be useful for seeding, as we're sending the same or an almost identical packet

@@ -1,7 +1,6 @@
 /// This file is responsible for the DolomedesClient CLI
 use crate::client::DolomedesClient;
-use crate::client::routing::ping;
-use crate::kadem::{Kademlia, NodeContact, NodeId};
+use crate::kadem::{Kademlia, NodeId};
 
 use anyhow::{Context, Result, bail};
 use crypto_bigint::U256;
@@ -12,19 +11,12 @@ use std::convert::Infallible;
 use std::io::Write;
 use std::path::PathBuf;
 
-impl<F> DolomedesClient<F>
-where
-    F: AsyncFn(&NodeContact) -> bool,
-{
-    pub fn with_config(
-        config_path: PathBuf,
-        routing_table_path: Option<PathBuf>,
-        ping: F,
-    ) -> Result<Self> {
+impl DolomedesClient {
+    pub fn with_config(config_path: PathBuf, routing_table_path: Option<PathBuf>) -> Result<Self> {
         let (port, datadir, signing_key, node_id) = read_config_file(&config_path)?;
         let routing_table = match routing_table_path {
-            None => Kademlia::new(node_id, ping),
-            Some(path) => Kademlia::from_file(path, ping)?,
+            None => Kademlia::new(node_id),
+            Some(path) => Kademlia::from_file(path)?,
         };
 
         Ok(Self {
@@ -38,7 +30,7 @@ where
 }
 
 pub fn serve(config_path: PathBuf, routing_table_path: Option<PathBuf>) -> Result<Infallible> {
-    let client = DolomedesClient::with_config(config_path, routing_table_path, ping)?;
+    let client = DolomedesClient::with_config(config_path, routing_table_path)?;
     todo!();
 }
 
