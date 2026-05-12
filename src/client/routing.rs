@@ -18,6 +18,7 @@ impl DolomedesClient {
             crate::pow::generate_entry_nonce(self.signing_key.verifying_key(), POW_LEADING_ZEROES);
         let join_message = Message::new(
             MessageType::JoinNetwork(self.port, pow_nonce, self.signing_key.verifying_key()),
+            self.node_id,
             &self.signing_key,
         );
 
@@ -45,6 +46,7 @@ impl DolomedesClient {
         let recipients = self.routing_table.store(key, value.as_ref(), true)?;
         let store_message = Message::new(
             MessageType::Store(32, self.node_id, value),
+            self.node_id,
             &self.signing_key,
         );
 
@@ -59,9 +61,8 @@ impl DolomedesClient {
 
         Ok(())
     }
-}
 
-// this is needed as a type param for client so it's not in client
-pub async fn ping(contact: &NodeContact) -> bool {
-    todo!()
+    pub fn ping(&mut self, contact: &NodeContact) -> bool {
+        todo!()
+    }
 }

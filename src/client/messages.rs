@@ -4,17 +4,18 @@ use crypto_bigint::U256;
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 
 use crate::client::routing::FileId;
-use crate::kadem::NodeContact;
+use crate::kadem::{NodeContact, NodeId};
 
 #[derive(Clone)]
 pub struct Message {
+    pub node_id: NodeId,
     pub payload: Box<[u8]>,
     signature: Signature,
     timestamp: u64,
 }
 
 impl Message {
-    pub fn new(message_type: MessageType, signing_key: &SigningKey) -> Self {
+    pub fn new(message_type: MessageType, node_id: NodeId, signing_key: &SigningKey) -> Self {
         let payload = message_type.to_payload();
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -24,6 +25,7 @@ impl Message {
         let to_sign = Self::signable_payload(&payload, timestamp);
 
         Self {
+            node_id,
             payload,
             signature: signing_key.sign(&to_sign),
             timestamp,
@@ -61,6 +63,8 @@ pub enum MessageType {
     // chunk index (0-indexed), FileId
     ChunkAck(u32, FileId),
     InvalidMessage,
+    Ping,
+    PingAck,
 }
 
 impl MessageType {
