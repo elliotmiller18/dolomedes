@@ -12,12 +12,9 @@ use std::io::Write;
 use std::path::PathBuf;
 
 impl DolomedesClient {
-    pub fn with_config(config_path: PathBuf, routing_table_path: Option<PathBuf>) -> Result<Self> {
+    pub fn with_config(config_path: PathBuf) -> Result<Self> {
         let (port, datadir, signing_key, node_id) = read_config_file(&config_path)?;
-        let routing_table = match routing_table_path {
-            None => Kademlia::new(node_id),
-            Some(path) => Kademlia::from_file(path)?,
-        };
+        let routing_table = Kademlia::new(node_id);
 
         Ok(Self {
             port,
@@ -29,8 +26,8 @@ impl DolomedesClient {
     }
 }
 
-pub fn serve(config_path: PathBuf, routing_table_path: Option<PathBuf>) -> Result<Infallible> {
-    let client = DolomedesClient::with_config(config_path, routing_table_path)?;
+pub fn serve(config_path: PathBuf) -> Result<Infallible> {
+    let client = DolomedesClient::with_config(config_path)?;
     todo!();
 }
 

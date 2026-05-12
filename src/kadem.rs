@@ -1,16 +1,14 @@
-use anyhow::{Context, Result, ensure};
+use anyhow::{Result, ensure};
 use crypto_bigint::U256;
-use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
-use std::io::{BufReader, BufWriter};
-use std::path::PathBuf;
+use std::sync::Mutex;
 
 pub type NodeId = U256;
 /// This is the variable "K" referred to in K-Buckets and all over the Kademlia paper
 const BUCKET_SIZE: usize = 8;
 
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq)]
 pub struct NodeContact {
     //UDP port
     pub port: u16,
@@ -23,26 +21,21 @@ pub enum FindValueResult {
     Data(Box<[u8]>),
 }
 
-#[derive(Serialize, Deserialize)]
 pub struct Kademlia {
     // index zero has a completey different prefix,
     // index one has one matching bit,
     // index two has two, all the way to 256 (which is us)
-
-    //TODO: make the routing_table a vec of mutexes so that multiple async fns can use it
-    // at the same time
-    routing_table: Vec<VecDeque<NodeContact>>,
+    routing_table: Vec<Mutex<VecDeque<NodeContact>>>,
     stores: HashMap<NodeId, Box<[u8]>>,
     node_id: NodeId,
 }
-
 impl Kademlia {
     pub const BUCKET_SIZE: usize = BUCKET_SIZE;
 
     pub fn new(node_id: NodeId) -> Self {
         Self {
             routing_table: (0..256)
-                .map(|_| VecDeque::with_capacity(BUCKET_SIZE))
+                .map(|_| Mutex::new(VecDeque::with_capacity(BUCKET_SIZE)))
                 .collect(),
             //OPTIMIZATION: add a floor to this that tells us what the first element of the routing table
             // with contacts in it is. chances are we're not gonna fill 0-200 in testing and even if
@@ -51,38 +44,6 @@ impl Kademlia {
             stores: HashMap::new(),
             node_id,
         }
-    }
-
-    pub fn from_file(path: PathBuf) -> Result<Self> {
-        let file = std::fs::File::open(&path)
-            .with_context(|| format!("failed to open routing table {}", path.display()))?;
-        let reader = BufReader::new(file);
-
-        bincode::deserialize_from(reader).with_context(|| {
-            format!(
-                "failed to deserialize binary routing table {}",
-                path.display()
-            )
-        })
-    }
-
-    pub fn to_file(&self, path: PathBuf) -> Result<()> {
-        let file = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(&path)
-            .with_context(|| format!("failed to open routing table {}", path.display()))?;
-        let writer = BufWriter::new(file);
-
-        bincode::serialize_into(writer, self).with_context(|| {
-            format!(
-                "failed to serialize binary routing table {}",
-                path.display()
-            )
-        })?;
-
-        Ok(())
     }
 
     pub fn find_node(&self, node_id: NodeId) -> Result<Vec<NodeContact>> {
@@ -100,7 +61,7 @@ impl Kademlia {
     /// update the routing table when we communicate with a
     /// node, confirming that it's alive
 
-    //TODO: makes it so that this doesn't lock up the whole routing table. we need a mutex on each bucket.
+    //TODO: makes it so that this doesn't lock up the whole routing table using nice mutexes.
     pub async fn update_bucket<P, Fut>(&mut self, contact: NodeContact, ping: P)
     where
         P: FnOnce(&NodeContact) -> Fut,
@@ -113,11 +74,11 @@ impl Kademlia {
             // have it for posterity sake
             let mut empty_bucket = VecDeque::new();
             empty_bucket.push_front(contact);
-            self.routing_table.insert(i, empty_bucket);
+            self.routing_table.insert(i, Mutex::new(empty_bucket));
             return;
         }
 
-        let bucket = &mut self.routing_table[i];
+        let mut bucket = self.routing_table[i].lock().unwrap();
 
         if bucket.len() < Self::BUCKET_SIZE {
             bucket.push_front(contact);
@@ -184,25 +145,25 @@ impl Kademlia {
     // assumes that all inserted nodes have been recently confirmed to be live and skips ping
     pub fn try_insert_node_without_ping(&mut self, node: NodeContact) {
         let i = self.routing_index(node.node_id);
+        let mut bucket = self.routing_table[i].lock().unwrap();
         // if there's space, insert, otherwise skip because we don't evict older nodes
         // in favor of newer nodes unless they fail to respond to a ping and the whole
         // point of this fn is that we AREN'T pinging
-        if self.routing_table[i].len() != BUCKET_SIZE {
-            assert!(self.routing_table[i].len() < BUCKET_SIZE);
-            self.routing_table[i].push_front(node);
+        if bucket.len() != BUCKET_SIZE {
+            assert!(bucket.len() < BUCKET_SIZE);
+            bucket.push_front(node);
         }
     }
 
     pub fn len(&self) -> usize {
-        self.routing_table.iter().map(|bucket| bucket.len()).sum()
+        self.routing_table
+            .iter()
+            .map(|bucket| bucket.lock().unwrap().len())
+            .sum()
     }
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
-    }
-
-    pub fn nodes(&self) -> impl Iterator<Item = &NodeContact> {
-        self.routing_table.iter().flatten()
     }
 
     /// returns the number of matching leading bits of a node id and our node id
@@ -217,6 +178,7 @@ impl Kademlia {
             .unwrap()
     }
 
+    //TODO: now that we have mutexes this is a bit gross, no?
     /// returns the k closest known contacts to target, if routing table has under k nodes it returns all nodes in the routing table
     fn closest_known_contacts(&self, target: NodeId) -> Vec<NodeContact> {
         // note: in this function (and elsewhere in this file) further/closer refer to ~~xor distance~~ which is described in the kademlia paper
@@ -230,23 +192,22 @@ impl Kademlia {
         // closer because nodes with an index >= routing index will always have a lower xor distance
         // than nodes that have an index < routing index, see kademlia paper or just read routing_index()
         // it's intuitive
-        let closer_buckets = &self.routing_table[routing_index..self.routing_table.len()];
-        let mut contacts: Vec<&NodeContact> = closer_buckets
+        let mut contacts: Vec<NodeContact> = self.routing_table
+            [routing_index..self.routing_table.len()]
             .iter()
-            .flatten()
+            .flat_map(|bucket| bucket.lock().unwrap().iter().cloned().collect::<Vec<_>>())
             .take(Self::BUCKET_SIZE)
             .collect();
 
         if contacts.len() < Self::BUCKET_SIZE {
-            let farther_buckets = &self.routing_table[0..routing_index];
             contacts.extend(
                 // here we take 16 because it guarantees that if we simply sort by xor distance later
                 // we will get exactly the remaining closest nodes we know about, i believe any less
                 // and we could get a suboptimal one
-                farther_buckets
+                self.routing_table[0..routing_index]
                     .iter()
                     .rev()
-                    .flatten()
+                    .flat_map(|bucket| bucket.lock().unwrap().iter().cloned().collect::<Vec<_>>())
                     .take(Self::BUCKET_SIZE * 2),
             );
         }
@@ -258,7 +219,7 @@ impl Kademlia {
         });
         contacts.truncate(Self::BUCKET_SIZE);
 
-        contacts.into_iter().cloned().collect()
+        contacts
     }
 
     fn xor_distance(a: NodeId, b: NodeId) -> NodeId {
