@@ -5,6 +5,7 @@ use std::future::Future;
 use std::sync::Mutex;
 
 pub type NodeId = U256;
+pub type KBucket = Mutex<VecDeque<NodeContact>>;
 /// This is the variable "K" referred to in K-Buckets and all over the Kademlia paper
 const BUCKET_SIZE: usize = 8;
 
@@ -25,7 +26,7 @@ pub struct Kademlia {
     // index zero has a completey different prefix,
     // index one has one matching bit,
     // index two has two, all the way to 256 (which is us)
-    routing_table: Vec<Mutex<VecDeque<NodeContact>>>,
+    routing_table: Vec<KBucket>,
     stores: HashMap<NodeId, Box<[u8]>>,
     node_id: NodeId,
 }
@@ -35,7 +36,7 @@ impl Kademlia {
     pub fn new(node_id: NodeId) -> Self {
         Self {
             routing_table: (0..256)
-                .map(|_| Mutex::new(VecDeque::with_capacity(BUCKET_SIZE)))
+                .map(|_| KBucket::new(VecDeque::with_capacity(BUCKET_SIZE)))
                 .collect(),
             //OPTIMIZATION: add a floor to this that tells us what the first element of the routing table
             // with contacts in it is. chances are we're not gonna fill 0-200 in testing and even if
@@ -62,28 +63,12 @@ impl Kademlia {
     /// node, confirming that it's alive
 
     //TODO: makes it so that this doesn't lock up the whole routing table using nice mutexes.
-    pub async fn update_bucket<P, Fut>(&mut self, contact: NodeContact, ping: P)
+    pub async fn update_bucket<P, Fut>(bucket: &mut KBucket, contact: NodeContact, ping: P)
     where
         P: FnOnce(&NodeContact) -> Fut,
         Fut: Future<Output = bool>,
     {
-        let i = self.routing_index(contact.node_id);
-
-        if self.routing_table.get(i).is_none() {
-            // NOTE: this should never run but in case we optimize with lazily initing buckets later we will
-            // have it for posterity sake
-            let mut empty_bucket = VecDeque::new();
-            empty_bucket.push_front(contact);
-            self.routing_table.insert(i, Mutex::new(empty_bucket));
-            return;
-        }
-
-        let mut bucket = self.routing_table[i].lock().unwrap();
-
-        if bucket.len() < Self::BUCKET_SIZE {
-            bucket.push_front(contact);
-            return;
-        }
+        let mut bucket = bucket.lock().unwrap();
 
         if let Some(pos) = bucket
             .iter()
@@ -95,8 +80,9 @@ impl Kademlia {
             bucket.remove(pos).unwrap();
             bucket.push_front(contact);
             return;
+        } else if bucket.len() < Self::BUCKET_SIZE {
+            bucket.push_front(contact);
         } else {
-            assert!(bucket.len() == Self::BUCKET_SIZE);
             let evicted = bucket.pop_back().unwrap();
             if ping(&evicted).await {
                 bucket.push_front(evicted);
@@ -164,6 +150,10 @@ impl Kademlia {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    pub fn bucket_for(&self, node_id: NodeId) -> &KBucket {
+        &self.routing_table[self.routing_index(node_id)]
     }
 
     /// returns the number of matching leading bits of a node id and our node id
