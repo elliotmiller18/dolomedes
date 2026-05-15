@@ -5,7 +5,6 @@ use std::future::Future;
 use std::sync::Mutex;
 
 pub type NodeId = U256;
-pub type KBucket = Mutex<VecDeque<NodeContact>>;
 /// This is the variable "K" referred to in K-Buckets and all over the Kademlia paper
 const BUCKET_SIZE: usize = 8;
 
@@ -26,7 +25,7 @@ pub struct Kademlia {
     // index zero has a completey different prefix,
     // index one has one matching bit,
     // index two has two, all the way to 256 (which is us)
-    routing_table: Vec<KBucket>,
+    routing_table: Vec<Mutex<VecDeque<NodeContact>>>,
     stores: HashMap<NodeId, Box<[u8]>>,
     node_id: NodeId,
 }
@@ -36,7 +35,7 @@ impl Kademlia {
     pub fn new(node_id: NodeId) -> Self {
         Self {
             routing_table: (0..256)
-                .map(|_| KBucket::new(VecDeque::with_capacity(BUCKET_SIZE)))
+                .map(|_| Mutex::new(VecDeque::with_capacity(BUCKET_SIZE)))
                 .collect(),
             //OPTIMIZATION: add a floor to this that tells us what the first element of the routing table
             // with contacts in it is. chances are we're not gonna fill 0-200 in testing and even if
@@ -59,40 +58,7 @@ impl Kademlia {
         }
     }
 
-    /// update the routing table when we communicate with a
-    /// node, confirming that it's alive
-
-    //TODO: makes it so that this doesn't lock up the whole routing table using nice mutexes.
-    pub async fn update_bucket<P, Fut>(bucket: &mut KBucket, contact: NodeContact, ping: P)
-    where
-        P: FnOnce(&NodeContact) -> Fut,
-        Fut: Future<Output = bool>,
-    {
-        let mut bucket = bucket.lock().unwrap();
-
-        if let Some(pos) = bucket
-            .iter()
-            .position(|known_contact| known_contact.node_id == contact.node_id)
-        {
-            // this implicitly allows for us to easily update ip addresses and ports in case of a quick reconfig,
-            // allows for nice graceful disconnect/reconnect cause sometimes someone wants to turn on a vpn or
-            // whatever
-            bucket.remove(pos).unwrap();
-            bucket.push_front(contact);
-            return;
-        } else if bucket.len() < Self::BUCKET_SIZE {
-            bucket.push_front(contact);
-        } else {
-            let evicted = bucket.pop_back().unwrap();
-            if ping(&evicted).await {
-                bucket.push_front(evicted);
-            } else {
-                bucket.push_front(contact);
-            }
-        }
-        assert!(bucket.len() <= Self::BUCKET_SIZE);
-    }
-
+    //TODO: delete this?
     /// Response to a STORE rpc.
     /// Returns closer Nodes that the store should be forwarded to.
     /// If there are less than K closer nodes or force_save is set we will also save the store.
@@ -124,12 +90,12 @@ impl Kademlia {
         Ok(closer_contacts)
     }
 
-    pub fn evict_node(&mut self, victim: NodeId) {
+    pub fn evict(&mut self, victim: NodeId) {
         todo!("remove node from routing table")
     }
 
     // assumes that all inserted nodes have been recently confirmed to be live and skips ping
-    pub fn try_insert_node_without_ping(&mut self, node: NodeContact) {
+    pub fn insert(&mut self, node: NodeContact) {
         let i = self.routing_index(node.node_id);
         let mut bucket = self.routing_table[i].lock().unwrap();
         // if there's space, insert, otherwise skip because we don't evict older nodes
@@ -152,7 +118,7 @@ impl Kademlia {
         self.len() == 0
     }
 
-    pub fn bucket_for(&self, node_id: NodeId) -> &KBucket {
+    pub fn bucket_for(&self, node_id: NodeId) -> &Mutex<VecDeque<NodeContact>> {
         &self.routing_table[self.routing_index(node_id)]
     }
 

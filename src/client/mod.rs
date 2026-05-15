@@ -7,8 +7,9 @@ mod messages;
 pub mod routing;
 
 use crate::kadem::{Kademlia, NodeId};
+use anyhow::Result;
 use ed25519_dalek::SigningKey;
-use std::path::PathBuf;
+use std::{convert::Infallible, path::PathBuf};
 
 pub const DEFAULT_PORT: u16 = 31460;
 pub const DEFAULT_CONFIG_PATH: &str = "dolomedes.cfg";
@@ -20,5 +21,11 @@ pub struct DolomedesClient {
     pub signing_key: SigningKey,
     pub node_id: NodeId,
     pub routing_table: Kademlia,
-    //TODO: should probably have some ds with contact -> connection pool here
+}
+
+impl DolomedesClient {
+    pub fn serve(config_path: PathBuf) -> Result<Infallible> {
+        let client = DolomedesClient::with_config(config_path)?;
+        todo!();
+    }
 }

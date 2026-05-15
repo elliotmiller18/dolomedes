@@ -7,7 +7,6 @@ use crypto_bigint::U256;
 use deterministic_rand::rngs::OsRng;
 use ed25519_dalek::SigningKey;
 use sha2::Digest;
-use std::convert::Infallible;
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -24,11 +23,6 @@ impl DolomedesClient {
             routing_table,
         })
     }
-}
-
-pub fn serve(config_path: PathBuf) -> Result<Infallible> {
-    let client = DolomedesClient::with_config(config_path)?;
-    todo!();
 }
 
 pub fn setup_env(config_path: PathBuf, datadir: PathBuf, port: u16) -> Result<()> {

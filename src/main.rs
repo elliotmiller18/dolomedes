@@ -76,7 +76,7 @@ fn main() -> anyhow::Result<()> {
 
     match mode {
         Mode::Serve { config_path } => {
-            let never = client::cli::serve(config_path)?;
+            let never = client::DolomedesClient::serve(config_path)?;
             match never {}
         }
         Mode::Setup {

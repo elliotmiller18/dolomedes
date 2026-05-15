@@ -79,7 +79,7 @@ impl MessageType {
 
 impl DolomedesClient {
     /// sends a message to NodeContact and returns whether or not it got a response.
-    pub(crate) fn send(&self, message: &Message, recipient: &NodeContact) -> Result<Message> {
+    pub(crate) async fn send(&self, message: &Message, recipient: &NodeContact) -> Result<Message> {
         //TODO: down the line MSG_ZEROCOPY might be useful for seeding, as we're sending the same or an almost identical packet
         // over and over to different sources.
 
