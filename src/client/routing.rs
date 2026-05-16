@@ -73,6 +73,19 @@ impl DolomedesClient {
         Ok(())
     }
 
+    //TODO: return Result<bool> when we implement writing kademlia to disk, cause an Err shouldn't cause the node
+    // to be kicked from the table, only an Ok(false) should.
+    async fn ping(&self, contact: &NodeContact) -> bool {
+        let message = Message::new(MessageType::Ping, self.node_id, &self.signing_key);
+        let response = self.send(&message, contact).await;
+        response.is_ok_and(|message| {
+            !matches!(
+                MessageType::from_payload(message.payload),
+                MessageType::PingAck
+            )
+        })
+    }
+
     /// update bucket given that we've just recieved a nice response from contact
     async fn update_bucket(&self, bucket: &Mutex<VecDeque<NodeContact>>, contact: &NodeContact) {
         let mut bucket = bucket.lock().unwrap();
@@ -98,18 +111,5 @@ impl DolomedesClient {
             }
         }
         assert!(bucket.len() <= Kademlia::BUCKET_SIZE);
-    }
-
-    //TODO: return Result<bool> when we implement writing kademlia to disk, cause an Err shouldn't cause the node
-    // to be kicked from the table, only an Ok(false) should.
-    async fn ping(&self, contact: &NodeContact) -> bool {
-        let message = Message::new(MessageType::Ping, self.node_id, &self.signing_key);
-        let response = self.send(&message, contact).await;
-        response.is_ok_and(|message| {
-            !matches!(
-                MessageType::from_payload(message.payload),
-                MessageType::PingAck
-            )
-        })
     }
 }

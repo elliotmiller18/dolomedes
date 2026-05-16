@@ -78,6 +78,7 @@ impl MessageType {
 }
 
 impl DolomedesClient {
+    //TODO: rename these two? send is supposed to be fire and forget but this shapes makes writing the protocol nicer
     /// sends a message to NodeContact and returns whether or not it got a response.
     pub(crate) async fn send(&self, message: &Message, recipient: &NodeContact) -> Result<Message> {
         //TODO: down the line MSG_ZEROCOPY might be useful for seeding, as we're sending the same or an almost identical packet
@@ -88,6 +89,10 @@ impl DolomedesClient {
 
         // also im thinking when this errors it's like an OS or Network error, not just
         // that we couldn't find the sender. maybe return Result<bool>?
+        todo!();
+    }
+
+    pub(crate) async fn send_ack(&self, ack_type: &MessageType, recipient: &NodeContact) -> Result<()> {
         todo!();
     }
 }
