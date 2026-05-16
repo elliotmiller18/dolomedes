@@ -1,6 +1,4 @@
 use anyhow::Result;
-
-/// This file is handles the all responses the DolomedesClients is expected to provide
 use crate::client::DolomedesClient;
 use crate::client::routing::FileId;
 
