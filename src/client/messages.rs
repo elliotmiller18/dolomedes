@@ -48,23 +48,59 @@ impl Message {
     }
 }
 
+// all file sizes in bytes
 pub enum MessageType {
-    // port, nonce, verifying key
-    JoinNetwork(u16, U256, VerifyingKey),
-    JoinAck,
-    JoinReject,
-    // file size (bytes), file id, file data (should be small, always a nonce rn)
-    Store(u32, FileId, Box<[u8]>),
-    StoreAck,
-    // chunk index (0-indexed), chunk size (bytes), file id
-    ChunkRequest(u32, u32, FileId),
-    // chunk index (0-indexed), chunk size (bytes), file id, file data (maybe asser that it's the size of arg 2?)
-    Chunk(u32, u32, FileId, Box<[u8]>),
-    // chunk index (0-indexed), FileId
-    ChunkAck(u32, FileId),
-    InvalidMessage,
     Ping,
     PingAck,
+    Seed {
+        file_id: FileId,
+    },
+    FindNode {
+        node: NodeId,
+    },
+    Nodes {
+        nodes: Vec<NodeContact>,
+    },
+    FindOwners {
+        file_id: NodeId,
+    },
+    Owners {
+        owners: Vec<NodeContact>,
+    },
+    JoinNetwork {
+        port: u16,
+        nonce: U256,
+        verifying_key: VerifyingKey,
+    },
+    JoinAck,
+    JoinReject,
+    StoreAck,
+    ChunkRequest {
+        chunk_index: u32,
+        chunk_size: u32,
+        file_id: FileId,
+    },
+    Chunk {
+        chunk_index: u32,
+        chunk_size: u32,
+        file_id: FileId,
+        data: Box<[u8]>,
+    },
+    ChunkAck {
+        chunk_index: u32,
+        file_id: FileId,
+    },
+    FileMetadataRequest {
+        file_id: FileId,
+    },
+    FileMetadata {
+        size: u32,
+        name: String,
+    },
+    InvalidMessage,
+    Error {
+        code: i64,
+    },
 }
 
 impl MessageType {
@@ -92,7 +128,11 @@ impl DolomedesClient {
         todo!();
     }
 
-    pub(crate) async fn send_ack(&self, ack_type: &MessageType, recipient: &NodeContact) -> Result<()> {
+    pub(crate) async fn send_ack(
+        &self,
+        ack_type: &MessageType,
+        recipient: &NodeContact,
+    ) -> Result<()> {
         todo!();
     }
 }

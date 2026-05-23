@@ -8,7 +8,7 @@ pub type NodeId = U256;
 /// This is the variable "K" referred to in K-Buckets and all over the Kademlia paper
 const BUCKET_SIZE: usize = 8;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct NodeContact {
     //UDP port
     pub port: u16,
@@ -90,7 +90,7 @@ impl Kademlia {
         Ok(closer_contacts)
     }
 
-    pub fn evict(&mut self, victim: NodeId) {
+    pub async fn evict(&self, victim: NodeId) {
         todo!("remove node from routing table")
     }
 
@@ -178,7 +178,7 @@ impl Kademlia {
         contacts
     }
 
-    fn xor_distance(a: NodeId, b: NodeId) -> NodeId {
+    pub fn xor_distance(a: NodeId, b: NodeId) -> NodeId {
         a ^ b
     }
 }

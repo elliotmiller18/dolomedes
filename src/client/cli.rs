@@ -1,4 +1,4 @@
-/// This file is responsible for the DolomedesClient CLI, it's also vibe coded slop and probably should be 
+/// This file is responsible for the DolomedesClient CLI, it's also vibe coded slop and probably should be
 /// not only rewritten but probably rethought as well
 use crate::client::DolomedesClient;
 use crate::kadem::{Kademlia, NodeId};

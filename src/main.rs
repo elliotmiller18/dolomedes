@@ -56,7 +56,8 @@ fn parse_cli() -> Result<Mode, clap::Error> {
     }
 }
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let mode = match parse_cli() {
         Ok(mode) => mode,
         Err(err) => match err.kind() {
