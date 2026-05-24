@@ -9,3 +9,4 @@ own the file.
 If a node knows more than k nodes (currently k bucket size but this constant could be sourced in many ways) that have proven ownership, a node is permitted
 (but not required) to drop ownership. This could probably a be a "low-resource" mode where nodes don't have to own as many files and therefore handle
 as many requests.
+

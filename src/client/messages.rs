@@ -58,14 +58,11 @@ pub enum MessageType {
     FindNode {
         node: NodeId,
     },
-    Nodes {
-        nodes: Vec<NodeContact>,
-    },
     FindOwners {
         file_id: NodeId,
     },
-    Owners {
-        owners: Vec<NodeContact>,
+    Nodes {
+        nodes: Vec<NodeContact>,
     },
     JoinNetwork {
         port: u16,
@@ -73,8 +70,6 @@ pub enum MessageType {
         verifying_key: VerifyingKey,
     },
     JoinAck,
-    JoinReject,
-    StoreAck,
     ChunkRequest {
         chunk_index: u32,
         chunk_size: u32,
@@ -90,12 +85,8 @@ pub enum MessageType {
         chunk_index: u32,
         file_id: FileId,
     },
-    FileMetadataRequest {
+    GetSeeders {
         file_id: FileId,
-    },
-    FileMetadata {
-        size: u32,
-        name: String,
     },
     InvalidMessage,
     Error {

@@ -4,7 +4,7 @@ use crate::client::DolomedesClient;
 use crate::client::messages::{Message, MessageType};
 use crate::client::routing::FileId;
 use crate::kadem::{Kademlia, NodeContact, NodeId};
-use anyhow::{Result, bail};
+use anyhow::{Result, bail, ensure};
 use binary_heap_plus::BinaryHeap;
 use std::cmp::Ordering;
 use std::collections::HashSet;
@@ -16,6 +16,7 @@ fn order_nodes_by_xor_distance(file: FileId, a: &NodeContact, b: &NodeContact) -
 }
 
 impl DolomedesClient {
+    const ERR_DOESNT_OWN_FILE: i64 = 1;
     //TODO: I'm concerned that nodes will converge on similar k-buckets for a file and if it's popular, we could have an
     // extremely popular file effectively capped at 8 seeders -- find a way to fix this
     // (maybe if we're unable to handle a request we can return a node that the requester is unlikely to have (eg our newest node?)
@@ -30,13 +31,24 @@ impl DolomedesClient {
     // just a note for future implementation, the smartest design is probably one where a node can request chunks of arbitrary
     // size from owners and they can set their own rate limits rather than requesting full files.
     pub async fn download_file(&self, file: FileId, path: PathBuf) -> Result<()> {
+        let seeders = self
+            .find_seeders(
+                file,
+                self.routing_table
+                    .bucket_for(file)
+                    .lock()
+                    .unwrap()
+                    .clone()
+                    .into_iter(),
+            )
+            .await?;
         todo!()
     }
 
-    async fn find_owners(
+    async fn find_seeders(
         &self,
         file: FileId,
-        candidates: impl Iterator<Item = &NodeContact>,
+        candidates: impl Iterator<Item = NodeContact>,
     ) -> Result<Vec<NodeContact>> {
         // priority q of nodes by xor distance from target. nodes know more nodes closer to themselves
         // so we want to keep querying the closest node we know to the file until one has it
@@ -44,26 +56,34 @@ impl DolomedesClient {
         let mut nodes = BinaryHeap::new_by(|a: &NodeContact, b: &NodeContact| {
             order_nodes_by_xor_distance(file, a, b)
         });
-        nodes.extend(
-            candidates
-                .filter(|contact| seen.insert(contact.node_id))
-                .cloned(),
-        );
+        nodes.extend(candidates.filter(|contact| seen.insert(contact.node_id)));
 
         while let Some(node) = nodes.pop() {
-            let message = Message::new(
+            let ownership_check = Message::new(
+                MessageType::GetSeeders { file_id: file },
+                self.node_id,
+                &self.signing_key,
+            );
+            match MessageType::from_payload(self.send(&ownership_check, &node).await?.payload) {
+                MessageType::Error { code } => {
+                    ensure!(code == Self::ERR_DOESNT_OWN_FILE);
+                }
+                MessageType::Nodes { nodes } => {
+                    return Ok(nodes);
+                }
+                _ => {
+                    self.routing_table.evict(node.node_id).await;
+                }
+            }
+
+            let find_owners = Message::new(
                 MessageType::FindOwners { file_id: file },
                 self.node_id,
                 &self.signing_key,
             );
-            let response = self.send(&message, &node).await?;
+            let response = self.send(&find_owners, &node).await?;
 
             match MessageType::from_payload(response.payload) {
-                MessageType::Owners { owners } => {
-                    let bucket = self.routing_table.bucket_for(node.node_id);
-                    self.insert_with_ping(bucket, &node).await;
-                    return Ok(owners);
-                }
                 MessageType::Nodes {
                     nodes: closer_nodes,
                 } => {

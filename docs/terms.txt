@@ -1,0 +1,5 @@
+Seeder: Node who has the data associated with and shares it with other nodes.
+
+Seedlist: List of nodes who are seeding
+
+Owner: Node responsible for maintaining a seedlist

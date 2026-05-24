@@ -1,0 +1,2 @@
+0: couldn't join network
+1: don't own requested file 
