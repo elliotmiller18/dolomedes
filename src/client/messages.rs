@@ -15,8 +15,8 @@ pub struct Message {
 }
 
 impl Message {
-    pub fn new(message_type: MessageType, node_id: NodeId, signing_key: &SigningKey) -> Self {
-        let payload = message_type.to_payload();
+    pub fn new(message_body: MessageBody, node_id: NodeId, signing_key: &SigningKey) -> Self {
+        let payload = message_body.to_payload();
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -49,7 +49,7 @@ impl Message {
 }
 
 // all file sizes in bytes
-pub enum MessageType {
+pub enum MessageBody {
     Ping,
     PingAck,
     Seed {
@@ -98,7 +98,7 @@ pub enum MessageType {
     },
 }
 
-impl MessageType {
+impl MessageBody {
     pub fn to_payload(self) -> Box<[u8]> {
         todo!()
     }
@@ -115,8 +115,8 @@ impl DolomedesClient {
         //TODO: down the line MSG_ZEROCOPY might be useful for seeding, as we're sending the same or an almost identical packet
         // over and over to different sources.
 
-        // note that here we should adjust our table based on who fails to respond. if
-        // something times out that means that node needs to be evicted.
+        //TODO: centralize routing table updates here so handlers don't need to worry about semantics.
+        // this means insertions as well as evictions.
 
         // also im thinking when this errors it's like an OS or Network error, not just
         // that we couldn't find the sender. maybe return Result<bool>?
@@ -125,7 +125,7 @@ impl DolomedesClient {
 
     pub(crate) async fn send_ack(
         &self,
-        ack_type: &MessageType,
+        ack_type: &MessageBody,
         recipient: &NodeContact,
     ) -> Result<()> {
         todo!();

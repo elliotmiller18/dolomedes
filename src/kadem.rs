@@ -94,16 +94,48 @@ impl Kademlia {
         todo!("remove node from routing table")
     }
 
-    // assumes that all inserted nodes have been recently confirmed to be live and skips ping
-    pub fn insert(&mut self, node: NodeContact) {
-        let i = self.routing_index(node.node_id);
-        let mut bucket = self.routing_table[i].lock().unwrap();
-        // if there's space, insert, otherwise skip because we don't evict older nodes
-        // in favor of newer nodes unless they fail to respond to a ping and the whole
-        // point of this fn is that we AREN'T pinging
-        if bucket.len() != BUCKET_SIZE {
-            assert!(bucket.len() < BUCKET_SIZE);
-            bucket.push_front(node);
+    pub async fn try_insert<F, Fut>(&self, contact: &NodeContact, ping: F) -> bool
+    where
+        F: FnOnce(NodeContact) -> Fut,
+        Fut: Future<Output = bool>,
+    {
+        let bucket = self.bucket_for(contact.node_id);
+        Self::update_bucket(bucket, contact, ping).await
+    }
+
+    pub async fn update_bucket<F, Fut>(
+        bucket: &Mutex<VecDeque<NodeContact>>,
+        contact: &NodeContact,
+        ping: F,
+    ) -> bool
+    where
+        F: FnOnce(NodeContact) -> Fut,
+        Fut: Future<Output = bool>,
+    {
+        let mut bucket = bucket.lock().unwrap();
+
+        if let Some(pos) = bucket
+            .iter()
+            .position(|known_contact| known_contact.node_id == contact.node_id)
+        {
+            // this implicitly allows for us to easily update ip addresses and ports in case of a quick reconfig,
+            // allows for nice graceful disconnect/reconnect cause sometimes someone wants to turn on a vpn or
+            // whatever
+            bucket.remove(pos).unwrap();
+            bucket.push_front(contact.clone());
+            return true;
+        } else if bucket.len() < Kademlia::BUCKET_SIZE {
+            bucket.push_front(contact.clone());
+            return true;
+        } else {
+            let evicted = bucket.pop_back().unwrap();
+            if ping(evicted.clone()).await {
+                bucket.push_front(evicted);
+                return false;
+            } else {
+                bucket.push_front(contact.clone());
+                return true;
+            }
         }
     }
 

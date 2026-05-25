@@ -1,26 +1,17 @@
+use std::fs::File;
 use std::io::{Seek, SeekFrom, Write};
 use std::path::PathBuf;
 
 use crate::client::DolomedesClient;
-use crate::client::messages::{Message, MessageType};
+use crate::client::messages::{Message, MessageBody};
 use crate::client::routing::FileId;
-use crate::kadem::{Kademlia, NodeContact, NodeId};
+use crate::kadem::NodeContact;
 use anyhow::{Result, bail, ensure};
-use binary_heap_plus::BinaryHeap;
 use futures::future::{BoxFuture, FutureExt};
 use futures::stream::{FuturesUnordered, StreamExt};
-use std::cmp::Ordering;
-use std::collections::{HashSet, VecDeque};
-use tokio::task::JoinSet;
-
-fn order_nodes_by_xor_distance(file: FileId, a: &NodeContact, b: &NodeContact) -> Ordering {
-    Kademlia::xor_distance(file, b.node_id)
-        .cmp(&Kademlia::xor_distance(file, a.node_id))
-        .then_with(|| b.node_id.cmp(&a.node_id))
-}
 
 impl DolomedesClient {
-    const ERR_DOESNT_OWN_FILE: i64 = 1;
+    pub(crate) const ERR_DOESNT_OWN_FILE: i64 = 1;
     const CHUNK_SIZE_BYTES: i64 = 1024 * 64;
     const MAX_CONCURRENT_CHUNK_REQUESTS: usize = 5;
     //TODO: I'm concerned that nodes will converge on similar k-buckets for a file and if it's popular, we could have an
@@ -59,7 +50,7 @@ impl DolomedesClient {
         let metadata_response = self
             .send(
                 &Message::new(
-                    MessageType::GetFileMetadata { file_id },
+                    MessageBody::GetFileMetadata { file_id },
                     self.node_id,
                     &self.signing_key,
                 ),
@@ -68,11 +59,11 @@ impl DolomedesClient {
             .await?;
 
         let file_size: usize;
-        if let MessageType::FileMetadata {
+        if let MessageBody::FileMetadata {
             file_id: metadata_file_id,
             file_size: metadata_file_size,
             file_name: _,
-        } = MessageType::from_payload(metadata_response.payload)
+        } = MessageBody::from_payload(metadata_response.payload)
         {
             ensure!(metadata_file_id == file_id);
             file_size = metadata_file_size.try_into().unwrap();
@@ -99,7 +90,7 @@ impl DolomedesClient {
         while chunk < total_chunks {
             let seeder = seeders.next().unwrap().clone();
             let chunk_request = Message::new(
-                MessageType::GetChunk {
+                MessageBody::GetChunk {
                     chunk_index: chunk.try_into().expect("chunk index over 32 bits"),
                     chunk_size: chunk_size_bytes.try_into().unwrap(),
                     file_id: file_id,
@@ -112,7 +103,7 @@ impl DolomedesClient {
                     .next()
                     .await
                     .unwrap()
-                    .expect("TODO: implement timeouts and retry");
+                    .expect("TODO: implement timeouts");
                 destination_file.seek(SeekFrom::Start(
                     (chunk_index * chunk_size_bytes)
                         .try_into()
@@ -126,14 +117,14 @@ impl DolomedesClient {
             requests.push(
                 async move {
                     let response = self.send(&chunk_request, &seeder).await?;
-                    match MessageType::from_payload(response.payload) {
-                        MessageType::Chunk {
+                    match MessageBody::from_payload(response.payload) {
+                        MessageBody::Chunk {
                             chunk_index,
                             chunk_size,
                             file_id,
                             data,
                         } => {
-                            //TODO: ensure! chunk index sixe and file id matchup i'm just lazy an llm can do this
+                            //TODO: ensure! chunk index sixe and file id matchup i'm just lazy an llm can do
                             return Ok((chunk_index.try_into().unwrap(), data));
                         }
                         _ => {
@@ -151,65 +142,34 @@ impl DolomedesClient {
         todo!()
     }
 
-    async fn find_seeders(
+    pub async fn serve_chunk(
         &self,
-        file: FileId,
-        candidates: impl Iterator<Item = NodeContact>,
-    ) -> Result<Vec<NodeContact>> {
-        // priority q of nodes by xor distance from target. nodes know more nodes closer to themselves
-        // so we want to keep querying the closest node we know to the file until one has it
-        let mut seen: HashSet<NodeId> = HashSet::new();
-        let mut nodes = BinaryHeap::new_by(|a: &NodeContact, b: &NodeContact| {
-            order_nodes_by_xor_distance(file, a, b)
-        });
-        nodes.extend(candidates.filter(|contact| seen.insert(contact.node_id)));
+        requester: &NodeContact,
+        chunk_index: u32,
+        chunk_size: u64,
+        file_id: FileId,
+        path: PathBuf,
+    ) -> Result<()> {
+        use std::io::Read;
 
-        while let Some(node) = nodes.pop() {
-            let ownership_check = Message::new(
-                MessageType::GetSeeders { file_id: file },
-                self.node_id,
-                &self.signing_key,
-            );
-            match MessageType::from_payload(self.send(&ownership_check, &node).await?.payload) {
-                MessageType::Error { code } => {
-                    ensure!(code == Self::ERR_DOESNT_OWN_FILE);
-                }
-                MessageType::Nodes { nodes } => {
-                    return Ok(nodes);
-                }
-                _ => {
-                    self.routing_table.evict(node.node_id).await;
-                }
-            }
+        let mut file = File::open(path).unwrap();
+        file.seek(SeekFrom::Start(chunk_size * (u64::from(chunk_index))))?;
 
-            let find_owners = Message::new(
-                MessageType::GetOwners { file_id: file },
-                self.node_id,
-                &self.signing_key,
-            );
-            let response = self.send(&find_owners, &node).await?;
+        let mut data = vec![0; chunk_size.try_into().unwrap()].into_boxed_slice();
+        file.read(&mut data)?;
 
-            match MessageType::from_payload(response.payload) {
-                MessageType::Nodes {
-                    nodes: closer_nodes,
-                } => {
-                    let bucket = self.routing_table.bucket_for(node.node_id);
-                    self.insert_with_ping(bucket, &node).await;
-                    for node in closer_nodes {
-                        if seen.insert(node.node_id) {
-                            nodes.push(node);
-                        }
-                    }
-                }
-                _ => {
-                    self.routing_table.evict(node.node_id).await;
-                    continue;
-                }
-            }
-        }
-
-        bail!(
-            "routing table sputtered out while looking for file {file}, did nukes drop? am i just dumb?"
+        let response = Message::new(
+            MessageBody::Chunk {
+                chunk_index,
+                chunk_size,
+                file_id,
+                data,
+            },
+            self.node_id,
+            &self.signing_key,
         );
+        self.send(&response, requester).await?;
+
+        Ok(())
     }
 }
