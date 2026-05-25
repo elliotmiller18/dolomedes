@@ -55,10 +55,10 @@ pub enum MessageType {
     Seed {
         file_id: FileId,
     },
-    FindNode {
+    GetNode {
         node: NodeId,
     },
-    FindOwners {
+    GetOwners {
         file_id: NodeId,
     },
     Nodes {
@@ -70,20 +70,24 @@ pub enum MessageType {
         verifying_key: VerifyingKey,
     },
     JoinAck,
-    ChunkRequest {
+    GetFileMetadata {
+        file_id: FileId,
+    },
+    FileMetadata {
+        file_id: FileId,
+        file_size: u64,
+        file_name: String,
+    },
+    GetChunk {
         chunk_index: u32,
-        chunk_size: u32,
+        chunk_size: u64,
         file_id: FileId,
     },
     Chunk {
         chunk_index: u32,
-        chunk_size: u32,
+        chunk_size: u64,
         file_id: FileId,
         data: Box<[u8]>,
-    },
-    ChunkAck {
-        chunk_index: u32,
-        file_id: FileId,
     },
     GetSeeders {
         file_id: FileId,
