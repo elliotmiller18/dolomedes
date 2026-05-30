@@ -7,3 +7,4 @@ STYLE RULES:
 - NEVER add directives to ignore compiler warnings
 - NEVER prefix variables with underscores, if a variable is unused the unused warning is an intentional signal
 - always cargo fmt when you're finished working. There are a lot of unused warning errors so cargo clippy is useless noise that will clog up your context window, so only directly cargo clippy your changes or suppress unused warnings temporarily.
+- Prefer &NodeContact to an owned NodeContact
