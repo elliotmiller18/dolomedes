@@ -33,20 +33,17 @@ impl DolomedesClient {
         path: PathBuf,
         destination: PathBuf,
     ) -> Result<()> {
-        let seeders = self
-            .find_seeders(
-                file_id,
-                self.routing_table
-                    .bucket_for(file_id)
-                    .lock()
-                    .unwrap()
-                    .clone()
-                    .into_iter(),
-            )
-            .await?;
+        let bucket = self
+            .routing_table
+            .bucket_for(file_id)
+            .lock()
+            .unwrap()
+            .clone();
+        let seeders = self.find_seeders(file_id, bucket.into_iter()).await?;
 
         ensure!(!seeders.is_empty());
 
+        //TODO: retry with more seeders
         let metadata_response = self
             .send(
                 &Message::new(
@@ -74,8 +71,9 @@ impl DolomedesClient {
             )
         }
 
-        let chunk_size_bytes = Self::CHUNK_SIZE_BYTES as usize;
+        let chunk_size_bytes = Self::CHUNK_SIZE_BYTES.try_into().unwrap();
         let total_chunks = file_size.div_ceil(chunk_size_bytes);
+        let final_chunk_size = file_size % chunk_size_bytes;
         let mut chunk = 0;
         let mut destination_file = std::fs::OpenOptions::new()
             .create(true)
@@ -87,17 +85,7 @@ impl DolomedesClient {
 
         let mut requests: FuturesUnordered<BoxFuture<'_, Result<(usize, Box<[u8]>)>>> =
             FuturesUnordered::new();
-        while chunk < total_chunks {
-            let seeder = seeders.next().unwrap().clone();
-            let chunk_request = Message::new(
-                MessageBody::GetChunk {
-                    chunk_index: chunk.try_into().expect("chunk index over 32 bits"),
-                    chunk_size: chunk_size_bytes.try_into().unwrap(),
-                    file_id: file_id,
-                },
-                self.node_id,
-                &self.signing_key,
-            );
+        loop {
             if requests.len() == Self::MAX_CONCURRENT_CHUNK_REQUESTS {
                 let (chunk_index, chunk_data) = requests
                     .next()
@@ -109,13 +97,37 @@ impl DolomedesClient {
                         .try_into()
                         .expect("file offset overflow"),
                 ))?;
-                destination_file.write_all(&chunk_data)?;
+                if chunk_data.len() == Self::CHUNK_SIZE_BYTES.try_into().unwrap() {
+                    destination_file.write_all(&chunk_data)?;
+                } else if chunk_data.len() == final_chunk_size {
+                    ensure!(
+                        chunk == total_chunks - 1,
+                        "extra chunk with final chunk size"
+                    );
+                    destination_file.write_all(&chunk_data)?;
+                } else {
+                    bail!("chunk with invalid size");
+                }
             }
 
-            //TODO: finish
+            if chunk == total_chunks {
+                continue;
+            }
+
+            let seeder = seeders.next().unwrap().clone();
+            let chunk_request = Message::new(
+                MessageBody::GetChunk {
+                    chunk_index: chunk.try_into().expect("chunk index over 32 bits"),
+                    chunk_size: chunk_size_bytes.try_into().unwrap(),
+                    file_id: file_id,
+                },
+                self.node_id,
+                &self.signing_key,
+            );
 
             requests.push(
                 async move {
+                    //TODO: put retry logic here. maybe Iterator<Item=&NodeContact> ?
                     let response = self.send(&chunk_request, &seeder).await?;
                     match MessageBody::from_payload(response.payload) {
                         MessageBody::Chunk {
