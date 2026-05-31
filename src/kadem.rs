@@ -46,7 +46,7 @@ impl Kademlia {
         }
     }
 
-    pub fn find_node(&self, node_id: NodeId) -> Result<Vec<NodeContact>> {
+    pub fn k_closest(&self, node_id: NodeId) -> Result<Vec<NodeContact>> {
         ensure!(node_id != self.node_id, "trying to find ourself");
         Ok(self.closest_known_contacts(node_id))
     }
@@ -54,7 +54,7 @@ impl Kademlia {
     pub fn find_value(&self, key: NodeId) -> Result<FindValueResult> {
         match self.stores.get(&key) {
             Some(path) => Ok(FindValueResult::Data(path.to_owned())),
-            None => Ok(FindValueResult::Contact(self.find_node(key)?)),
+            None => Ok(FindValueResult::Contact(self.k_closest(key)?)),
         }
     }
 

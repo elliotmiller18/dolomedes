@@ -6,9 +6,12 @@ pub mod fileshare;
 mod messages;
 pub mod routing;
 
+use crate::client::routing::FileId;
 use crate::kadem::{Kademlia, NodeId};
 use anyhow::Result;
 use ed25519_dalek::SigningKey;
+use std::collections::HashMap;
+use std::sync::Mutex;
 use std::{convert::Infallible, path::PathBuf};
 
 pub const DEFAULT_PORT: u16 = 31460;
@@ -21,6 +24,7 @@ pub struct DolomedesClient {
     pub signing_key: SigningKey,
     pub node_id: NodeId,
     pub routing_table: Kademlia,
+    pub seeders: Mutex<HashMap<FileId, Vec<NodeId>>>,
 }
 
 impl DolomedesClient {

@@ -2,6 +2,8 @@
 /// not only rewritten but probably rethought as well
 use crate::client::DolomedesClient;
 use crate::kadem::{Kademlia, NodeId};
+use std::collections::HashMap;
+use std::sync::Mutex;
 
 use anyhow::{Context, Result, bail};
 use crypto_bigint::U256;
@@ -22,6 +24,7 @@ impl DolomedesClient {
             signing_key,
             node_id,
             routing_table,
+            seeders: Mutex::new(HashMap::new()),
         })
     }
 }

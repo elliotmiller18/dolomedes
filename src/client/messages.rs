@@ -52,9 +52,10 @@ impl Message {
 pub enum MessageBody {
     Ping,
     PingAck,
-    Seed {
+    DeclareSeed {
         file_id: FileId,
     },
+    SeedAck,
     GetNode {
         node: NodeId,
     },

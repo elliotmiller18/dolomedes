@@ -52,7 +52,7 @@ impl DolomedesClient {
 
     //TODO: return Result<bool> when we implement writing kademlia to disk, cause an Err shouldn't cause the node
     // to be kicked from the table, only an Ok(false) should.
-    pub async fn ping(&self, contact: &NodeContact) -> bool {
+    pub(crate) async fn ping(&self, contact: &NodeContact) -> bool {
         let message = Message::new(MessageBody::Ping, self.node_id, &self.signing_key);
         let response = self.send(&message, contact).await;
         response.is_ok_and(|message| {
@@ -61,6 +61,47 @@ impl DolomedesClient {
                 MessageBody::PingAck
             )
         })
+    }
+
+    pub async fn declare_seed(&self, file_id: FileId) -> Result<()> {
+        let k_closest = self.routing_table.k_closest(file_id)?;
+        let message = Message::new(
+            MessageBody::DeclareSeed { file_id },
+            self.node_id,
+            &self.signing_key,
+        );
+        for node in k_closest {
+            match MessageBody::from_payload(self.send(&message, &node).await?.payload) {
+                MessageBody::SeedAck => {}
+                _ => tracing::warn!(
+                    "node {} failed to acknowledge seed declaration",
+                    node.node_id
+                ),
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn acknowledge_seed(&self, requester: &NodeContact, file_id: FileId) -> Result<()> {
+        self.seeders
+            .lock()
+            .unwrap()
+            .entry(file_id)
+            .or_default()
+            .push(requester.node_id);
+        self.send_ack(&MessageBody::SeedAck, requester).await
+    }
+
+    pub async fn serve_nodes(&self, recipient: &NodeContact, target: NodeId) -> Result<()> {
+        let k_closest = self.routing_table.k_closest(target).unwrap();
+        let response = Message::new(
+            MessageBody::Nodes { nodes: k_closest },
+            self.node_id,
+            &self.signing_key,
+        );
+        //TODO: somehow check that we successfully send here, fire and forget is gross
+        self.send(&response, recipient);
+        Ok(())
     }
 
     pub(crate) async fn find_seeders(

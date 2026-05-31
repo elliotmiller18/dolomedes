@@ -7,3 +7,5 @@ and keep all of the internals in DolomedesProto
 
 This whole system is incredibly brittle with unwrap() and expect() calls everywhere on what can be standard os/network errors.
 This must change later but for the closed testing I plan on doing it is actually helpful for catching invariants.
+
+My idea is that all external node failures should be handled very gracefully, while all OS and Network failures should be handled very aggressively. We should be crash first and crash on local failures with easy recovery with some kind of crash loop detection.

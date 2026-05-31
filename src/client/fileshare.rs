@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::io::{Seek, SeekFrom, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::client::DolomedesClient;
 use crate::client::messages::{Message, MessageBody};
@@ -44,32 +44,10 @@ impl DolomedesClient {
         ensure!(!seeders.is_empty());
 
         //TODO: retry with more seeders
-        let metadata_response = self
-            .send(
-                &Message::new(
-                    MessageBody::GetFileMetadata { file_id },
-                    self.node_id,
-                    &self.signing_key,
-                ),
-                seeders.first().unwrap(),
-            )
+        let (metadata_file_size, _) = self
+            .get_file_metadata(file_id, seeders.first().unwrap())
             .await?;
-
-        let file_size: usize;
-        if let MessageBody::FileMetadata {
-            file_id: metadata_file_id,
-            file_size: metadata_file_size,
-            file_name: _,
-        } = MessageBody::from_payload(metadata_response.payload)
-        {
-            ensure!(metadata_file_id == file_id);
-            file_size = metadata_file_size.try_into().unwrap();
-        } else {
-            bail!(
-                "seeder {} failed to respond properly",
-                seeders.first().unwrap().node_id
-            )
-        }
+        let file_size: usize = metadata_file_size.try_into().unwrap();
 
         let chunk_size_bytes = Self::CHUNK_SIZE_BYTES.try_into().unwrap();
         let total_chunks = file_size.div_ceil(chunk_size_bytes);
@@ -152,6 +130,60 @@ impl DolomedesClient {
 
         //TODO: we need a smarter and more secure file sharing method later on. this is a hack to get version 0.0.1 out
         todo!()
+    }
+
+    pub async fn get_file_metadata(
+        &self,
+        file_id: FileId,
+        target: &NodeContact,
+    ) -> Result<(u64, String)> {
+        let response = self
+            .send(
+                &Message::new(
+                    MessageBody::GetFileMetadata { file_id },
+                    self.node_id,
+                    &self.signing_key,
+                ),
+                target,
+            )
+            .await?;
+        match MessageBody::from_payload(response.payload) {
+            MessageBody::FileMetadata {
+                file_id: metadata_file_id,
+                file_size,
+                file_name,
+            } => {
+                ensure!(metadata_file_id == file_id);
+                Ok((file_size, file_name))
+            }
+            _ => bail!("node {} returned invalid metadata response", target.node_id),
+        }
+    }
+
+    pub async fn serve_file_metadata(
+        &self,
+        requester: &NodeContact,
+        file_id: FileId,
+        path: &Path,
+    ) -> Result<()> {
+        let file_size = std::fs::metadata(path)?.len();
+        let file_name = path
+            .file_name()
+            .expect("path has no file name")
+            .to_str()
+            .expect("file name is not valid UTF-8")
+            .to_string();
+        let response = Message::new(
+            MessageBody::FileMetadata {
+                file_id,
+                file_size,
+                file_name,
+            },
+            self.node_id,
+            &self.signing_key,
+        );
+        self.send(&response, requester).await?;
+        Ok(())
     }
 
     pub async fn serve_chunk(
