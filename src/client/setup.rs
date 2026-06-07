@@ -1,7 +1,6 @@
-/// This file is responsible for the DolomedesClient CLI, it's also vibe coded slop and probably should be
-/// not only rewritten but probably rethought as well
+//NOTE: this file is vibe coded.
 use crate::client::DolomedesClient;
-use crate::kadem::{Kademlia, NodeId};
+use crate::kadem::{Kademlia, NodeContact, NodeId};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -11,11 +10,12 @@ use deterministic_rand::rngs::OsRng;
 use ed25519_dalek::SigningKey;
 use sha2::Digest;
 use std::io::Write;
-use std::path::PathBuf;
+use std::net::IpAddr;
+use std::path::{Path, PathBuf};
 
 impl DolomedesClient {
-    pub fn with_config(config_path: PathBuf) -> Result<Self> {
-        let (port, datadir, signing_key, node_id) = read_config_file(&config_path)?;
+    pub fn with_config(config_path: &Path) -> Result<Self> {
+        let (port, datadir, signing_key, node_id) = read_config_file(config_path)?;
         let routing_table = Kademlia::new(node_id);
 
         Ok(Self {
@@ -66,7 +66,7 @@ fn create_config_file(config_path: PathBuf, datadir: PathBuf, port: u16) -> Resu
     Ok(())
 }
 
-fn read_config_file(path: &PathBuf) -> Result<(u16, PathBuf, SigningKey, NodeId)> {
+fn read_config_file(path: &Path) -> Result<(u16, PathBuf, SigningKey, NodeId)> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read config file at {}", path.display()))?;
 
@@ -76,7 +76,7 @@ fn read_config_file(path: &PathBuf) -> Result<(u16, PathBuf, SigningKey, NodeId)
 
     for (line_number, line) in content.lines().enumerate() {
         let line = line.trim();
-        if line.is_empty() {
+        if line.is_empty() || line.starts_with('#') {
             continue;
         }
         let (key, value) = line.split_once('=').with_context(|| {
@@ -125,4 +125,47 @@ fn read_config_file(path: &PathBuf) -> Result<(u16, PathBuf, SigningKey, NodeId)
         signing_key,
         node_id,
     ))
+}
+
+/// Parses a genesis file — one node per line, `#` comments allowed.
+/// Format: `<ip>:<port>:<node_id_hex>`
+/// Example: `192.168.1.1:31460:aabbcc...`
+pub fn read_genesis_file(path: &Path) -> Result<Vec<NodeContact>> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read genesis file at {}", path.display()))?;
+
+    content
+        .lines()
+        .enumerate()
+        .filter_map(|(i, line)| {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                return None;
+            }
+            Some((i + 1, line))
+        })
+        .map(|(line_number, line)| {
+            let err = || {
+                format!(
+                    "invalid genesis entry on line {} in {}: expected <ip>:<port>:<node_id_hex>",
+                    line_number,
+                    path.display()
+                )
+            };
+
+            // split from the right so IPv6 addresses parse cleanly
+            let (ip_and_port, node_id_hex) = line.rsplit_once(':').with_context(err)?;
+            let (ip_str, port_str) = ip_and_port.rsplit_once(':').with_context(err)?;
+
+            let ip: IpAddr = ip_str.parse().with_context(err)?;
+            let port: u16 = port_str.parse().with_context(err)?;
+            let node_id_bytes: [u8; 32] = hex::decode(node_id_hex)
+                .with_context(err)?
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("{}", err()))?;
+            let node_id = U256::from_be_slice(&node_id_bytes);
+
+            Ok(NodeContact { ip, port, node_id })
+        })
+        .collect()
 }

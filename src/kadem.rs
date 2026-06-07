@@ -1,6 +1,6 @@
 use anyhow::{Result, ensure};
 use crypto_bigint::U256;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::future::Future;
 use std::sync::Mutex;
 
@@ -16,17 +16,11 @@ pub struct NodeContact {
     pub ip: std::net::IpAddr,
 }
 
-pub enum FindValueResult {
-    Contact(Vec<NodeContact>),
-    Data(Box<[u8]>),
-}
-
 pub struct Kademlia {
     // index zero has a completey different prefix,
     // index one has one matching bit,
     // index two has two, all the way to 256 (which is us)
     routing_table: Vec<Mutex<VecDeque<NodeContact>>>,
-    stores: HashMap<NodeId, Box<[u8]>>,
     node_id: NodeId,
 }
 impl Kademlia {
@@ -34,14 +28,13 @@ impl Kademlia {
 
     pub fn new(node_id: NodeId) -> Self {
         Self {
-            routing_table: (0..256)
-                .map(|_| Mutex::new(VecDeque::with_capacity(BUCKET_SIZE)))
-                .collect(),
             //OPTIMIZATION: add a floor to this that tells us what the first element of the routing table
             // with contacts in it is. chances are we're not gonna fill 0-200 in testing and even if
             // this grew to ipfs scale we'd still never fill most of them,
             // or even better just use a trie (although in this case a b-tree is a trie)
-            stores: HashMap::new(),
+            routing_table: (0..256)
+                .map(|_| Mutex::new(VecDeque::with_capacity(BUCKET_SIZE)))
+                .collect(),
             node_id,
         }
     }
@@ -49,49 +42,6 @@ impl Kademlia {
     pub fn k_closest(&self, node_id: NodeId) -> Result<Vec<NodeContact>> {
         ensure!(node_id != self.node_id, "trying to find ourself");
         Ok(self.closest_known_contacts(node_id))
-    }
-
-    pub fn find_value(&self, key: NodeId) -> Result<FindValueResult> {
-        match self.stores.get(&key) {
-            Some(path) => Ok(FindValueResult::Data(path.to_owned())),
-            None => Ok(FindValueResult::Contact(self.k_closest(key)?)),
-        }
-    }
-
-    //TODO: delete this?
-    /// Response to a STORE rpc.
-    /// Returns closer Nodes that the store should be forwarded to.
-    /// If there are less than K closer nodes or force_save is set we will also save the store.
-    pub fn store<R: std::io::Read>(
-        &mut self,
-        key: NodeId,
-        mut reader: R,
-        force_save: bool,
-    ) -> Result<Vec<NodeContact>> {
-        let self_distance = Self::xor_distance(key, self.node_id);
-        let closer_contacts: Vec<NodeContact> = self
-            .closest_known_contacts(key)
-            .into_iter()
-            .filter(|contact| Self::xor_distance(contact.node_id, key) < self_distance)
-            .take(Self::BUCKET_SIZE)
-            .collect();
-
-        let should_save = closer_contacts.len() < Self::BUCKET_SIZE
-            || closer_contacts
-                .iter()
-                .any(|c| Self::xor_distance(key, c.node_id) > self_distance);
-
-        if should_save || force_save {
-            let mut buffer = Vec::new();
-            reader.read_to_end(&mut buffer)?;
-            self.stores.insert(key, buffer.into_boxed_slice());
-        }
-
-        Ok(closer_contacts)
-    }
-
-    pub async fn evict(&self, victim: NodeId) {
-        todo!("remove node from routing table")
     }
 
     pub async fn try_insert<F, Fut>(&self, contact: &NodeContact, ping: F) -> bool
@@ -112,30 +62,34 @@ impl Kademlia {
         F: FnOnce(NodeContact) -> Fut,
         Fut: Future<Output = bool>,
     {
-        let mut bucket = bucket.lock().unwrap();
-
-        if let Some(pos) = bucket
-            .iter()
-            .position(|known_contact| known_contact.node_id == contact.node_id)
-        {
-            // this implicitly allows for us to easily update ip addresses and ports in case of a quick reconfig,
-            // allows for nice graceful disconnect/reconnect cause sometimes someone wants to turn on a vpn or
-            // whatever
-            bucket.remove(pos).unwrap();
-            bucket.push_front(contact.clone());
-            return true;
-        } else if bucket.len() < Kademlia::BUCKET_SIZE {
-            bucket.push_front(contact.clone());
-            return true;
-        } else {
-            let evicted = bucket.pop_back().unwrap();
-            if ping(evicted.clone()).await {
-                bucket.push_front(evicted);
-                return false;
-            } else {
-                bucket.push_front(contact.clone());
+        // evict_candidate is only set when the bucket is full and we need to ping the oldest node.
+        // the lock is dropped before the ping await so this future stays Send.
+        let evict_candidate = {
+            let mut guard = bucket.lock().unwrap();
+            if let Some(pos) = guard
+                .iter()
+                .position(|known_contact| known_contact.node_id == contact.node_id)
+            {
+                // this implicitly allows for us to easily update ip addresses and ports in case of a quick reconfig,
+                // allows for nice graceful disconnect/reconnect cause sometimes someone wants to turn on a vpn or
+                // whatever
+                guard.remove(pos).unwrap();
+                guard.push_front(contact.clone());
                 return true;
+            } else if guard.len() < Kademlia::BUCKET_SIZE {
+                guard.push_front(contact.clone());
+                return true;
+            } else {
+                guard.pop_back().unwrap()
             }
+        };
+
+        if ping(evict_candidate.clone()).await {
+            bucket.lock().unwrap().push_front(evict_candidate);
+            false
+        } else {
+            bucket.lock().unwrap().push_front(contact.clone());
+            true
         }
     }
 

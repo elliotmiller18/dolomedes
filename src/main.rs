@@ -1,5 +1,4 @@
-#![feature(file_buffered)]
-/// NOTE: this file is vibe coded.
+//NOTE: this file is vibe coded.
 mod client;
 mod kadem;
 mod pow;
@@ -12,6 +11,8 @@ struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
     config_path: Option<std::path::PathBuf>,
+    #[arg(long, global = true)]
+    genesis: Option<std::path::PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -27,6 +28,7 @@ enum Commands {
 enum Mode {
     Serve {
         config_path: std::path::PathBuf,
+        genesis_path: Option<std::path::PathBuf>,
     },
     Setup {
         config_path: std::path::PathBuf,
@@ -44,7 +46,10 @@ fn parse_cli() -> Result<Mode, clap::Error> {
             datadir: datadir.unwrap_or_else(|| std::path::PathBuf::from(client::DEFAULT_DATA_DIR)),
             port: port.unwrap_or(client::DEFAULT_PORT),
         }),
-        (None, Some(config_path)) => Ok(Mode::Serve { config_path }),
+        (None, Some(config_path)) => Ok(Mode::Serve {
+            config_path,
+            genesis_path: cli.genesis,
+        }),
         (None, None) => Err(Cli::command().error(
             ErrorKind::MissingRequiredArgument,
             "missing required argument <CONFIG_PATH>",
@@ -76,16 +81,26 @@ async fn main() -> anyhow::Result<()> {
     };
 
     match mode {
-        Mode::Serve { config_path } => {
-            let never = client::DolomedesClient::serve(config_path)?;
-            match never {}
+        Mode::Serve {
+            config_path,
+            genesis_path,
+        } => {
+            let client = client::DolomedesClient::with_config(&config_path)?;
+
+            if let Some(path) = genesis_path {
+                let genesis_nodes = client::setup::read_genesis_file(&path)?;
+                client.join_network(genesis_nodes).await?;
+            }
+
+            tokio::spawn(async move { client.serve().await.expect("serve crashed") });
+            Ok(())
         }
         Mode::Setup {
             config_path,
             datadir,
             port,
         } => {
-            client::cli::setup_env(config_path, datadir, port)?;
+            client::setup::setup_env(config_path, datadir, port)?;
             Ok(())
         }
     }

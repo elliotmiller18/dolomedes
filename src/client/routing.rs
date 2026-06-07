@@ -24,7 +24,7 @@ fn order_nodes_by_xor_distance(file: FileId, a: &NodeContact, b: &NodeContact) -
 
 impl DolomedesClient {
     /// join the dolomedes network for the **first** time, or if your routing table is lost.
-    pub async fn join_network(&mut self, genesis_nodes: Vec<NodeContact>) -> Result<()> {
+    pub async fn join_network(&self, genesis_nodes: Vec<NodeContact>) -> Result<()> {
         let pow_nonce: U256 =
             crate::pow::generate_entry_nonce(self.signing_key.verifying_key(), POW_LEADING_ZEROES);
         let join_message = Message::new(
@@ -38,7 +38,7 @@ impl DolomedesClient {
         );
 
         for node in genesis_nodes {
-            match MessageBody::from_payload(self.send(&join_message, &node).await?.payload) {
+            match self.send(&join_message, &node).await?.body() {
                 MessageBody::JoinAck => {}
                 _ => {
                     tracing::warn!("genesis node {} failed to respond properly", node.node_id);
@@ -55,12 +55,7 @@ impl DolomedesClient {
     pub(crate) async fn ping(&self, contact: &NodeContact) -> bool {
         let message = Message::new(MessageBody::Ping, self.node_id, &self.signing_key);
         let response = self.send(&message, contact).await;
-        response.is_ok_and(|message| {
-            !matches!(
-                MessageBody::from_payload(message.payload),
-                MessageBody::PingAck
-            )
-        })
+        response.is_ok_and(|message| !matches!(message.body(), MessageBody::PingAck))
     }
 
     pub async fn declare_seed(&self, file_id: FileId) -> Result<()> {
@@ -71,7 +66,7 @@ impl DolomedesClient {
             &self.signing_key,
         );
         for node in k_closest {
-            match MessageBody::from_payload(self.send(&message, &node).await?.payload) {
+            match self.send(&message, &node).await?.body() {
                 MessageBody::SeedAck => {}
                 _ => tracing::warn!(
                     "node {} failed to acknowledge seed declaration",
@@ -89,19 +84,18 @@ impl DolomedesClient {
             .entry(file_id)
             .or_default()
             .push(requester.node_id);
-        self.send_ack(&MessageBody::SeedAck, requester).await
+        self.send_discriminant(MessageBody::SeedAck, requester)
+            .await
     }
 
-    pub async fn serve_nodes(&self, recipient: &NodeContact, target: NodeId) -> Result<()> {
+    pub async fn serve_nodes(&self, target: NodeId, requester: &NodeContact) -> Result<()> {
         let k_closest = self.routing_table.k_closest(target).unwrap();
         let response = Message::new(
             MessageBody::Nodes { nodes: k_closest },
             self.node_id,
             &self.signing_key,
         );
-        //TODO: somehow check that we successfully send here, fire and forget is gross
-        self.send(&response, recipient);
-        Ok(())
+        self.fire(&response, requester).await
     }
 
     pub(crate) async fn find_seeders(
@@ -123,7 +117,7 @@ impl DolomedesClient {
                 self.node_id,
                 &self.signing_key,
             );
-            match MessageBody::from_payload(self.send(&ownership_check, &node).await?.payload) {
+            match self.send(&ownership_check, &node).await?.body() {
                 MessageBody::Error { code } => {
                     ensure!(code == Self::ERR_DOESNT_OWN_FILE);
                 }
@@ -138,9 +132,7 @@ impl DolomedesClient {
                 self.node_id,
                 &self.signing_key,
             );
-            let response = self.send(&find_owners, &node).await?;
-
-            match MessageBody::from_payload(response.payload) {
+            match self.send(&find_owners, &node).await?.body() {
                 MessageBody::Nodes {
                     nodes: closer_nodes,
                 } => {
