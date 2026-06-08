@@ -9,7 +9,6 @@ use crate::kadem::NodeContact;
 use anyhow::{Result, bail, ensure};
 use futures::future::{BoxFuture, FutureExt};
 use futures::stream::{FuturesUnordered, StreamExt};
-use quinn::Connection;
 
 impl DolomedesClient {
     pub(crate) const ERR_DOESNT_OWN_FILE: i64 = 1;
@@ -97,8 +96,9 @@ impl DolomedesClient {
                 async move {
                     //TODO: put retry logic here. maybe take Iterator<Item=&NodeContact> instead of just having one seeder?
                     let conn = self.open_connection(&seeder).await?;
-                    self.send(&chunk_request, &conn).await?;
-                    let response = self.recv(&conn).await?;
+                    let (mut tx, mut rx) = conn.open_bi().await.unwrap();
+                    self.send(&chunk_request, &mut tx).await?;
+                    let response = self.recv(&mut rx).await?;
                     match response.body() {
                         MessageBody::Chunk {
                             chunk_index,
@@ -108,7 +108,6 @@ impl DolomedesClient {
                         } => {
                             ensure!(chunk_size_bytes == chunk_size.try_into().unwrap());
                             ensure!(file_id == provided_file_id);
-                            //TODO: ensure! chunk index sixe and file id matchup i'm just lazy an llm can do
                             return Ok((chunk_index.try_into().unwrap(), data));
                         }
                         _ => {
@@ -130,16 +129,18 @@ impl DolomedesClient {
         target: &NodeContact,
     ) -> Result<(u64, String)> {
         let conn = self.open_connection(target).await?;
+        let mut tx = conn.open_uni().await.unwrap();
         self.send(
             &Message::new(
                 MessageBody::GetFileMetadata { file_id },
                 self.node_id,
                 &self.signing_key,
             ),
-            &conn,
+            &mut tx,
         )
         .await?;
-        match self.recv(&conn).await?.body() {
+        let mut rx = conn.accept_uni().await.unwrap();
+        match self.recv(&mut rx).await?.body() {
             MessageBody::FileMetadata {
                 file_id: metadata_file_id,
                 file_size,
@@ -156,7 +157,7 @@ impl DolomedesClient {
         &self,
         file_id: FileId,
         path: &Path,
-        conn: &Connection,
+        tx: &mut quinn::SendStream,
     ) -> Result<()> {
         let file_size = std::fs::metadata(path)?.len();
         let file_name = path
@@ -175,7 +176,7 @@ impl DolomedesClient {
                 self.node_id,
                 &self.signing_key,
             ),
-            conn,
+            tx,
         )
         .await
     }
@@ -186,7 +187,7 @@ impl DolomedesClient {
         chunk_size: u64,
         file_id: FileId,
         path: PathBuf,
-        conn: &Connection,
+        tx: &mut quinn::SendStream,
     ) -> Result<()> {
         use std::io::Read;
 
@@ -207,7 +208,7 @@ impl DolomedesClient {
                 self.node_id,
                 &self.signing_key,
             ),
-            &conn,
+            tx,
         )
         .await
     }

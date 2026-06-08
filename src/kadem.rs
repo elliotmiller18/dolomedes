@@ -120,7 +120,6 @@ impl Kademlia {
             .unwrap()
     }
 
-    //TODO: now that we have mutexes this is a bit gross, no?
     /// returns the k closest known contacts to target, if routing table has under k nodes it returns all nodes in the routing table
     fn closest_known_contacts(&self, target: NodeId) -> Vec<NodeContact> {
         // note: in this function (and elsewhere in this file) further/closer refer to ~~xor distance~~ which is described in the kademlia paper

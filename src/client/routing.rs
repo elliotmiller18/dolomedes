@@ -12,7 +12,6 @@ use std::{cmp::Ordering, collections::HashSet};
 use anyhow::{Result, bail, ensure};
 use binary_heap_plus::BinaryHeap;
 use crypto_bigint::U256;
-use quinn::Connection;
 
 pub type FileId = U256;
 pub const POW_LEADING_ZEROES: usize = 24;
@@ -40,8 +39,9 @@ impl DolomedesClient {
 
         for node in genesis_nodes {
             let conn = self.open_connection(&node).await?;
-            self.send(&join_message, &conn).await?;
-            match self.recv(&conn).await?.body() {
+            let (mut tx, mut rx) = conn.open_bi().await.unwrap();
+            self.send(&join_message, &mut tx).await?;
+            match self.recv(&mut rx).await?.body() {
                 MessageBody::JoinAck => {}
                 _ => {
                     tracing::warn!("genesis node {} failed to respond properly", node.node_id);
@@ -55,15 +55,16 @@ impl DolomedesClient {
 
     pub(crate) async fn ping(&self, contact: &NodeContact) -> Result<bool> {
         let conn = self.open_connection(contact).await?;
+        let (mut tx, mut rx) = conn.open_bi().await.unwrap();
         self.send(
             &Message::new(MessageBody::Ping, self.node_id, &self.signing_key),
-            &conn,
+            &mut tx,
         )
         .await?;
-        //TODO: branching error handling based on whether or not an error here 
+        //TODO: branching error handling based on whether or not an error here
         // was local or a timeout, local should be Err, timeout from them should be false
         Ok(matches!(
-            self.recv(&conn).await?.body(),
+            self.recv(&mut rx).await?.body(),
             MessageBody::PingAck
         ))
     }
@@ -77,8 +78,9 @@ impl DolomedesClient {
         );
         for node in k_closest {
             let conn = self.open_connection(&node).await?;
-            self.send(&message, &conn).await?;
-            match self.recv(&conn).await?.body() {
+            let (mut tx, mut rx) = conn.open_bi().await.unwrap();
+            self.send(&message, &mut tx).await?;
+            match self.recv(&mut rx).await?.body() {
                 MessageBody::SeedAck => {}
                 _ => tracing::warn!(
                     "node {} failed to acknowledge seed declaration",
@@ -93,7 +95,7 @@ impl DolomedesClient {
         &self,
         requester_id: NodeId,
         file_id: FileId,
-        conn: &Connection,
+        tx: &mut quinn::SendStream,
     ) -> Result<()> {
         self.seeders
             .lock()
@@ -103,19 +105,19 @@ impl DolomedesClient {
             .push(requester_id);
         self.send(
             &Message::new(MessageBody::SeedAck, self.node_id, &self.signing_key),
-            &conn,
+            tx,
         )
         .await
     }
 
-    pub async fn serve_nodes(&self, target: NodeId, conn: &Connection) -> Result<()> {
+    pub async fn serve_nodes(&self, target: NodeId, tx: &mut quinn::SendStream) -> Result<()> {
         let k_closest = self.routing_table.k_closest(target).unwrap();
         let response = Message::new(
             MessageBody::Nodes { nodes: k_closest },
             self.node_id,
             &self.signing_key,
         );
-        self.send(&response, &conn).await
+        self.send(&response, tx).await
     }
 
     pub(crate) async fn find_seeders(
@@ -134,16 +136,17 @@ impl DolomedesClient {
         while let Some(node) = nodes.pop() {
             let conn = self.open_connection(&node).await?;
 
+            let (mut tx, mut rx) = conn.open_bi().await.unwrap();
             self.send(
                 &Message::new(
                     MessageBody::GetSeeders { file_id: file },
                     self.node_id,
                     &self.signing_key,
                 ),
-                &conn,
+                &mut tx,
             )
             .await?;
-            match self.recv(&conn).await?.body() {
+            match self.recv(&mut rx).await?.body() {
                 MessageBody::Error { code } => {
                     ensure!(code == Self::ERR_DOESNT_OWN_FILE);
                 }
@@ -159,10 +162,10 @@ impl DolomedesClient {
                     self.node_id,
                     &self.signing_key,
                 ),
-                &conn,
+                &mut tx,
             )
             .await?;
-            match self.recv(&conn).await?.body() {
+            match self.recv(&mut rx).await?.body() {
                 MessageBody::Nodes {
                     nodes: closer_nodes,
                 } => {
