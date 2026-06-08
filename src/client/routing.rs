@@ -12,6 +12,7 @@ use std::{cmp::Ordering, collections::HashSet};
 use anyhow::{Result, bail, ensure};
 use binary_heap_plus::BinaryHeap;
 use crypto_bigint::U256;
+use quinn::Connection;
 
 pub type FileId = U256;
 pub const POW_LEADING_ZEROES: usize = 24;
@@ -38,7 +39,9 @@ impl DolomedesClient {
         );
 
         for node in genesis_nodes {
-            match self.send(&join_message, &node).await?.body() {
+            let conn = self.open_connection(&node).await?;
+            self.send(&join_message, &conn).await?;
+            match self.recv(&conn).await?.body() {
                 MessageBody::JoinAck => {}
                 _ => {
                     tracing::warn!("genesis node {} failed to respond properly", node.node_id);
@@ -50,12 +53,19 @@ impl DolomedesClient {
         Ok(())
     }
 
-    //TODO: return Result<bool> when we implement writing kademlia to disk, cause an Err shouldn't cause the node
-    // to be kicked from the table, only an Ok(false) should.
-    pub(crate) async fn ping(&self, contact: &NodeContact) -> bool {
-        let message = Message::new(MessageBody::Ping, self.node_id, &self.signing_key);
-        let response = self.send(&message, contact).await;
-        response.is_ok_and(|message| !matches!(message.body(), MessageBody::PingAck))
+    pub(crate) async fn ping(&self, contact: &NodeContact) -> Result<bool> {
+        let conn = self.open_connection(contact).await?;
+        self.send(
+            &Message::new(MessageBody::Ping, self.node_id, &self.signing_key),
+            &conn,
+        )
+        .await?;
+        //TODO: branching error handling based on whether or not an error here 
+        // was local or a timeout, local should be Err, timeout from them should be false
+        Ok(matches!(
+            self.recv(&conn).await?.body(),
+            MessageBody::PingAck
+        ))
     }
 
     pub async fn declare_seed(&self, file_id: FileId) -> Result<()> {
@@ -66,7 +76,9 @@ impl DolomedesClient {
             &self.signing_key,
         );
         for node in k_closest {
-            match self.send(&message, &node).await?.body() {
+            let conn = self.open_connection(&node).await?;
+            self.send(&message, &conn).await?;
+            match self.recv(&conn).await?.body() {
                 MessageBody::SeedAck => {}
                 _ => tracing::warn!(
                     "node {} failed to acknowledge seed declaration",
@@ -77,25 +89,33 @@ impl DolomedesClient {
         Ok(())
     }
 
-    pub async fn acknowledge_seed(&self, requester: &NodeContact, file_id: FileId) -> Result<()> {
+    pub async fn acknowledge_seed(
+        &self,
+        requester_id: NodeId,
+        file_id: FileId,
+        conn: &Connection,
+    ) -> Result<()> {
         self.seeders
             .lock()
             .unwrap()
             .entry(file_id)
             .or_default()
-            .push(requester.node_id);
-        self.send_discriminant(MessageBody::SeedAck, requester)
-            .await
+            .push(requester_id);
+        self.send(
+            &Message::new(MessageBody::SeedAck, self.node_id, &self.signing_key),
+            &conn,
+        )
+        .await
     }
 
-    pub async fn serve_nodes(&self, target: NodeId, requester: &NodeContact) -> Result<()> {
+    pub async fn serve_nodes(&self, target: NodeId, conn: &Connection) -> Result<()> {
         let k_closest = self.routing_table.k_closest(target).unwrap();
         let response = Message::new(
             MessageBody::Nodes { nodes: k_closest },
             self.node_id,
             &self.signing_key,
         );
-        self.fire(&response, requester).await
+        self.send(&response, &conn).await
     }
 
     pub(crate) async fn find_seeders(
@@ -112,12 +132,18 @@ impl DolomedesClient {
         nodes.extend(candidates.filter(|contact| seen.insert(contact.node_id)));
 
         while let Some(node) = nodes.pop() {
-            let ownership_check = Message::new(
-                MessageBody::GetSeeders { file_id: file },
-                self.node_id,
-                &self.signing_key,
-            );
-            match self.send(&ownership_check, &node).await?.body() {
+            let conn = self.open_connection(&node).await?;
+
+            self.send(
+                &Message::new(
+                    MessageBody::GetSeeders { file_id: file },
+                    self.node_id,
+                    &self.signing_key,
+                ),
+                &conn,
+            )
+            .await?;
+            match self.recv(&conn).await?.body() {
                 MessageBody::Error { code } => {
                     ensure!(code == Self::ERR_DOESNT_OWN_FILE);
                 }
@@ -127,12 +153,16 @@ impl DolomedesClient {
                 _ => {}
             }
 
-            let find_owners = Message::new(
-                MessageBody::GetOwners { file_id: file },
-                self.node_id,
-                &self.signing_key,
-            );
-            match self.send(&find_owners, &node).await?.body() {
+            self.send(
+                &Message::new(
+                    MessageBody::GetOwners { file_id: file },
+                    self.node_id,
+                    &self.signing_key,
+                ),
+                &conn,
+            )
+            .await?;
+            match self.recv(&conn).await?.body() {
                 MessageBody::Nodes {
                     nodes: closer_nodes,
                 } => {

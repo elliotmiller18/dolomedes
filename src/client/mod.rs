@@ -4,11 +4,12 @@ pub mod routing;
 pub mod setup;
 
 use crate::client::routing::FileId;
-use crate::kadem::{Kademlia, NodeId};
+use crate::kadem::{Kademlia, NodeContact, NodeId};
 use anyhow::Result;
 use ed25519_dalek::SigningKey;
 use std::collections::HashMap;
 use std::convert::Infallible;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -23,10 +24,16 @@ pub struct DolomedesClient {
     pub node_id: NodeId,
     pub routing_table: Kademlia,
     pub seeders: Mutex<HashMap<FileId, Vec<NodeId>>>,
+    pub endpoint: quinn::Endpoint,
 }
 
 impl DolomedesClient {
     pub async fn serve(&self) -> Result<Infallible> {
         todo!();
+    }
+
+    pub async fn open_connection(&self, node: &NodeContact) -> Result<quinn::Connection> {
+        let addr = SocketAddr::new(node.ip, node.port);
+        Ok(self.endpoint.connect(addr, "dolomedes")?.await?)
     }
 }

@@ -2,7 +2,7 @@
 use crate::client::DolomedesClient;
 use crate::kadem::{Kademlia, NodeContact, NodeId};
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, bail};
 use crypto_bigint::U256;
@@ -10,13 +10,14 @@ use deterministic_rand::rngs::OsRng;
 use ed25519_dalek::SigningKey;
 use sha2::Digest;
 use std::io::Write;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 
 impl DolomedesClient {
     pub fn with_config(config_path: &Path) -> Result<Self> {
         let (port, datadir, signing_key, node_id) = read_config_file(config_path)?;
         let routing_table = Kademlia::new(node_id);
+        let endpoint = make_endpoint(port)?;
 
         Ok(Self {
             port,
@@ -25,7 +26,88 @@ impl DolomedesClient {
             node_id,
             routing_table,
             seeders: Mutex::new(HashMap::new()),
+            endpoint,
         })
+    }
+}
+
+fn make_endpoint(port: u16) -> Result<quinn::Endpoint> {
+    let server_config = make_server_config()?;
+    let client_config = make_client_config();
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port);
+    let mut endpoint = quinn::Endpoint::server(server_config, addr)?;
+    endpoint.set_default_client_config(client_config);
+    Ok(endpoint)
+}
+
+fn make_server_config() -> Result<quinn::ServerConfig> {
+    let cert = rcgen::generate_simple_self_signed(vec!["dolomedes".to_string()])?;
+    let cert_der = rustls::pki_types::CertificateDer::from(cert.cert);
+    let key_der = rustls::pki_types::PrivateKeyDer::Pkcs8(cert.key_pair.serialize_der().into());
+    Ok(quinn::ServerConfig::with_single_cert(
+        vec![cert_der],
+        key_der,
+    )?)
+}
+
+fn make_client_config() -> quinn::ClientConfig {
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let crypto = rustls::ClientConfig::builder_with_provider(provider.clone())
+        .with_protocol_versions(&[&rustls::version::TLS13])
+        .unwrap()
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(SkipServerVerification(provider)))
+        .with_no_client_auth();
+    quinn::ClientConfig::new(Arc::new(
+        quinn::crypto::rustls::QuicClientConfig::try_from(crypto).unwrap(),
+    ))
+}
+
+#[derive(Debug)]
+struct SkipServerVerification(Arc<rustls::crypto::CryptoProvider>);
+
+impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &rustls::pki_types::CertificateDer<'_>,
+        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        _server_name: &rustls::pki_types::ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        self.0.signature_verification_algorithms.supported_schemes()
     }
 }
 

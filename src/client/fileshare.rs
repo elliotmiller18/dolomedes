@@ -9,6 +9,7 @@ use crate::kadem::NodeContact;
 use anyhow::{Result, bail, ensure};
 use futures::future::{BoxFuture, FutureExt};
 use futures::stream::{FuturesUnordered, StreamExt};
+use quinn::Connection;
 
 impl DolomedesClient {
     pub(crate) const ERR_DOESNT_OWN_FILE: i64 = 1;
@@ -95,7 +96,9 @@ impl DolomedesClient {
             requests.push(
                 async move {
                     //TODO: put retry logic here. maybe take Iterator<Item=&NodeContact> instead of just having one seeder?
-                    let response = self.send(&chunk_request, &seeder).await?;
+                    let conn = self.open_connection(&seeder).await?;
+                    self.send(&chunk_request, &conn).await?;
+                    let response = self.recv(&conn).await?;
                     match response.body() {
                         MessageBody::Chunk {
                             chunk_index,
@@ -126,17 +129,17 @@ impl DolomedesClient {
         file_id: FileId,
         target: &NodeContact,
     ) -> Result<(u64, String)> {
-        let response = self
-            .send(
-                &Message::new(
-                    MessageBody::GetFileMetadata { file_id },
-                    self.node_id,
-                    &self.signing_key,
-                ),
-                target,
-            )
-            .await?;
-        match response.body() {
+        let conn = self.open_connection(target).await?;
+        self.send(
+            &Message::new(
+                MessageBody::GetFileMetadata { file_id },
+                self.node_id,
+                &self.signing_key,
+            ),
+            &conn,
+        )
+        .await?;
+        match self.recv(&conn).await?.body() {
             MessageBody::FileMetadata {
                 file_id: metadata_file_id,
                 file_size,
@@ -151,9 +154,9 @@ impl DolomedesClient {
 
     pub async fn serve_file_metadata(
         &self,
-        requester: &NodeContact,
         file_id: FileId,
         path: &Path,
+        conn: &Connection,
     ) -> Result<()> {
         let file_size = std::fs::metadata(path)?.len();
         let file_name = path
@@ -162,25 +165,28 @@ impl DolomedesClient {
             .to_str()
             .expect("file name is not valid UTF-8")
             .to_string();
-        let response = Message::new(
-            MessageBody::FileMetadata {
-                file_id,
-                file_size,
-                file_name,
-            },
-            self.node_id,
-            &self.signing_key,
-        );
-        self.fire(&response, requester).await
+        self.send(
+            &Message::new(
+                MessageBody::FileMetadata {
+                    file_id,
+                    file_size,
+                    file_name,
+                },
+                self.node_id,
+                &self.signing_key,
+            ),
+            conn,
+        )
+        .await
     }
 
     pub async fn serve_chunk(
         &self,
-        requester: &NodeContact,
         chunk_index: u32,
         chunk_size: u64,
         file_id: FileId,
         path: PathBuf,
+        conn: &Connection,
     ) -> Result<()> {
         use std::io::Read;
 
@@ -190,16 +196,19 @@ impl DolomedesClient {
         let mut data = vec![0; chunk_size.try_into().unwrap()].into_boxed_slice();
         file.read(&mut data)?;
 
-        let response = Message::new(
-            MessageBody::Chunk {
-                chunk_index,
-                chunk_size,
-                file_id,
-                data,
-            },
-            self.node_id,
-            &self.signing_key,
-        );
-        self.fire(&response, requester).await
+        self.send(
+            &Message::new(
+                MessageBody::Chunk {
+                    chunk_index,
+                    chunk_size,
+                    file_id,
+                    data,
+                },
+                self.node_id,
+                &self.signing_key,
+            ),
+            &conn,
+        )
+        .await
     }
 }

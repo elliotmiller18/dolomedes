@@ -104,6 +104,7 @@ pub enum MessageBody {
 }
 
 impl MessageBody {
+    //NOTE: discriminant and to/from payload are all vibe coded, they look fine but double check on verification
     fn discriminant(&self) -> u8 {
         const PING: u8 = 0x00;
         const PING_ACK: u8 = 0x01;
@@ -334,7 +335,8 @@ fn take_bytes<'a>(buf: &mut &'a [u8], n: usize) -> Result<&'a [u8]> {
 }
 
 impl DolomedesClient {
-    pub(crate) async fn send(&self, message: &Message, recipient: &NodeContact) -> Result<Message> {
+    //TODO: send and recv should take a quic
+    pub(crate) async fn send(&self, message: &Message, conn: &quinn::Connection) -> Result<()> {
         //TODO: down the line MSG_ZEROCOPY might be useful for seeding, as we're sending the same or an almost identical packet
         // over and over to different sources.
 
@@ -346,15 +348,7 @@ impl DolomedesClient {
         todo!();
     }
 
-    pub(crate) async fn fire(&self, message: &Message, recipient: &NodeContact) -> Result<()> {
-        todo!()
-    }
-
-    pub(crate) async fn send_discriminant(
-        &self,
-        message: MessageBody,
-        recipient: &NodeContact,
-    ) -> Result<()> {
+    pub(crate) async fn recv(&self, conn: &quinn::Connection) -> Result<Message> {
         todo!()
     }
 }

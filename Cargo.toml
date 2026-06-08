@@ -5,6 +5,9 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.102"
+quinn = "0.11"
+rcgen = "0.13"
+rustls = { version = "0.23", features = ["ring"] }
 binary-heap-plus = "0.5.0"
 borsh = { version = "1.6.1", features = ["derive"] }
 clap = { version = "4.5.38", features = ["derive"] }
