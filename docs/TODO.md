@@ -11,3 +11,5 @@ This must change later but for the closed testing I plan on doing it is actually
 My idea is that all external node failures should be handled very gracefully, while all OS and Network failures should be handled very aggressively. We should be crash first and crash on local failures with easy recovery with some kind of crash loop detection.
 
 When we implement saving routing table to disk we need to add saving genesis nodes at setup instead of them being an argument to serve
+
+We should add a "Busy" response for when a reliable node gets a large burst in traffic, so that if a reliable node can't service a request because a one of their files suddenly becomes pupular, they shouldn't get evicted by routing tables. After a certain number of "Busy" responses, then they'll be evicted.
